@@ -1,0 +1,55 @@
+package com.example.InventoryManagementSystem.controllor;
+
+
+import com.example.InventoryManagementSystem.dto.ProductRequestDTO;
+import com.example.InventoryManagementSystem.dto.ProductResponseDTO;
+import com.example.InventoryManagementSystem.service.ProductService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/products")
+public class ProductController {
+
+    private final ProductService service;
+
+    public ProductController(ProductService service) {
+        this.service = service;
+    }
+
+    @PostMapping
+    public ResponseEntity<ProductResponseDTO> create(@RequestBody ProductRequestDTO dto) {
+        return ResponseEntity.ok(service.createProduct(dto));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<ProductResponseDTO> getById(@PathVariable Long id) {
+        return ResponseEntity.ok(service.getProductById(id));
+    }
+
+    // itemType filter is server-side, not a client hide — Catalog screens must never fetch the
+    // other type at all (Products page passes PRODUCT, Service Master has its own table/endpoint).
+    @GetMapping
+    public ResponseEntity<List<ProductResponseDTO>> getAll(
+            @RequestParam(required = false) String itemType) {
+        return ResponseEntity.ok(
+                itemType == null || itemType.isBlank()
+                        ? service.getAllProducts()
+                        : service.getAllProducts(itemType.toUpperCase()));
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<ProductResponseDTO> update(
+            @PathVariable Long id,
+            @RequestBody ProductRequestDTO dto) {
+        return ResponseEntity.ok(service.updateProduct(id, dto));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<String> delete(@PathVariable Long id) {
+        service.deleteProduct(id);
+        return ResponseEntity.ok("Product deleted successfully");
+    }
+}
