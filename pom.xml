@@ -53,6 +53,15 @@
 			<scope>runtime</scope>
 		</dependency>
 
+		<!-- Cloud SQL connector: lets the JDBC driver dial a Cloud SQL instance
+		     by name over Google's private connector instead of host:port -->
+		<dependency>
+			<groupId>com.google.cloud.sql</groupId>
+			<artifactId>postgres-socket-factory</artifactId>
+			<version>1.19.1</version>
+			<scope>runtime</scope>
+		</dependency>
+
 		<!-- JWT -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
