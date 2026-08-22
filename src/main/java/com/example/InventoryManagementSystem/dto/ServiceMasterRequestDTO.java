@@ -17,5 +17,6 @@ public class ServiceMasterRequestDTO {
     private BigDecimal defaultPrice;
     private BigDecimal gstPercentage;
     private Integer durationMinutes;
+    private String vehicleType;
     private String status;
 }

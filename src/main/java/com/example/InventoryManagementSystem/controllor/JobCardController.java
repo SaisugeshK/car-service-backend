@@ -1,8 +1,10 @@
 package com.example.InventoryManagementSystem.controllor;
 
+import com.example.InventoryManagementSystem.dto.DeliveryChecklistDTO;
 import com.example.InventoryManagementSystem.dto.InvoiceResponseDTO;
 import com.example.InventoryManagementSystem.dto.JobCardRequestDTO;
 import com.example.InventoryManagementSystem.dto.JobCardResponseDTO;
+import com.example.InventoryManagementSystem.dto.JobCardStatusHistoryResponseDTO;
 import com.example.InventoryManagementSystem.service.JobCardService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -61,9 +63,27 @@ public class JobCardController {
         return ResponseEntity.ok(service.generateInvoice(id, paymentMethod, paidAmount, counterId));
     }
 
+    // Customer rejected the estimate — bills only the inspection fee, never the declined work.
+    @PostMapping("/{id}/generate-inspection-fee-invoice")
+    public ResponseEntity<InvoiceResponseDTO> generateInspectionFeeInvoice(@PathVariable Long id, @RequestBody(required = false) Map<String, Object> body) {
+        String paymentMethod = body != null && body.get("paymentMethod") != null ? body.get("paymentMethod").toString() : null;
+        BigDecimal paidAmount = body != null && body.get("paidAmount") != null
+                ? new BigDecimal(body.get("paidAmount").toString()) : BigDecimal.ZERO;
+        Long counterId = body != null && body.get("counterId") != null
+                ? Long.valueOf(body.get("counterId").toString()) : null;
+        BigDecimal feeAmount = body != null && body.get("feeAmount") != null
+                ? new BigDecimal(body.get("feeAmount").toString()) : null;
+        return ResponseEntity.ok(service.generateInspectionFeeInvoice(id, paymentMethod, paidAmount, counterId, feeAmount));
+    }
+
+    @GetMapping("/{id}/status-history")
+    public ResponseEntity<List<JobCardStatusHistoryResponseDTO>> getStatusHistory(@PathVariable Long id) {
+        return ResponseEntity.ok(service.getStatusHistory(id));
+    }
+
     @PostMapping("/{id}/deliver")
-    public ResponseEntity<JobCardResponseDTO> markDelivered(@PathVariable Long id) {
-        return ResponseEntity.ok(service.markDelivered(id));
+    public ResponseEntity<JobCardResponseDTO> markDelivered(@PathVariable Long id, @RequestBody(required = false) DeliveryChecklistDTO checklist) {
+        return ResponseEntity.ok(service.markDelivered(id, checklist));
     }
 
     @DeleteMapping("/{id}")

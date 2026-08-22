@@ -13,5 +13,6 @@ public class InspectionItemResponseDTO {
     private String status;
     private String notes;
     private String recommendation;
+    private String priority;
     private OffsetDateTime updatedAt;
 }

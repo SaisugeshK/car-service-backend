@@ -22,17 +22,46 @@ public class ServiceReminderServiceImpl implements ServiceReminderService {
     private final ServiceReminderRepository repository;
     private final VehicleRepository vehicleRepository;
     private final CustomerRepository customerRepository;
+    private final NotificationEventService notificationEventService;
 
     @Override
     public ServiceReminderResponseDTO createReminder(ServiceReminderRequestDTO dto) {
         ServiceReminder reminder = new ServiceReminder();
         reminder.setVehicleId(dto.getVehicleId());
+        reminder.setReminderType(dto.getReminderType() != null ? dto.getReminderType() : "NEXT_SERVICE");
         reminder.setDueDate(dto.getDueDate());
         reminder.setDueOdometer(dto.getDueOdometer());
         reminder.setSourceInvoiceId(dto.getSourceInvoiceId());
         reminder.setNotes(dto.getNotes());
         reminder.setStatus(dto.getStatus() != null ? dto.getStatus() : "UPCOMING");
-        return mapToDto(repository.save(reminder));
+        ServiceReminder saved = repository.save(reminder);
+        // Manual reminders only — upsertAutoReminder() runs automatically off every invoice and
+        // would flood the notification center if it raised one too; this is the deliberate,
+        // staff-initiated action worth surfacing.
+        notificationEventService.raise("REMINDER", "Service reminder scheduled",
+                (dto.getReminderType() != null ? dto.getReminderType() : "Service") + " reminder set"
+                        + (dto.getDueDate() != null ? " for " + dto.getDueDate() : "") + ".",
+                "SERVICE_REMINDER", saved.getReminderId());
+        return mapToDto(saved);
+    }
+
+    @Override
+    public void upsertAutoReminder(Long vehicleId, String reminderType, LocalDate dueDate, Integer dueOdometer, String notes) {
+        if (dueDate == null) return;
+
+        ServiceReminder existing = repository.findByVehicleId(vehicleId).stream()
+                .filter(r -> reminderType.equals(r.getReminderType()) && !"DONE".equals(r.getStatus()))
+                .findFirst()
+                .orElse(null);
+
+        ServiceReminder reminder = existing != null ? existing : new ServiceReminder();
+        reminder.setVehicleId(vehicleId);
+        reminder.setReminderType(reminderType);
+        reminder.setDueDate(dueDate);
+        if (dueOdometer != null) reminder.setDueOdometer(dueOdometer);
+        reminder.setNotes(notes);
+        if (existing == null) reminder.setStatus("UPCOMING");
+        repository.save(reminder);
     }
 
     @Override
@@ -50,6 +79,7 @@ public class ServiceReminderServiceImpl implements ServiceReminderService {
     public ServiceReminderResponseDTO updateReminder(Long id, ServiceReminderRequestDTO dto) {
         ServiceReminder reminder = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Service reminder not found with id: " + id));
+        if (dto.getReminderType() != null) reminder.setReminderType(dto.getReminderType());
         if (dto.getDueDate() != null) reminder.setDueDate(dto.getDueDate());
         if (dto.getDueOdometer() != null) reminder.setDueOdometer(dto.getDueOdometer());
         if (dto.getNotes() != null) reminder.setNotes(dto.getNotes());
@@ -68,6 +98,7 @@ public class ServiceReminderServiceImpl implements ServiceReminderService {
         ServiceReminderResponseDTO dto = new ServiceReminderResponseDTO();
         dto.setReminderId(reminder.getReminderId());
         dto.setVehicleId(reminder.getVehicleId());
+        dto.setReminderType(reminder.getReminderType());
         dto.setDueDate(reminder.getDueDate());
         dto.setDueOdometer(reminder.getDueOdometer());
         dto.setSourceInvoiceId(reminder.getSourceInvoiceId());
@@ -99,6 +130,7 @@ public class ServiceReminderServiceImpl implements ServiceReminderService {
             customerRepository.findById(vehicle.getCustomerId()).ifPresent(c -> {
                 dto.setCustomerName(c.getCustomerName());
                 dto.setCustomerPhone(c.getPhone());
+                dto.setCustomerWhatsapp(c.getWhatsappNumber());
             });
         }
 

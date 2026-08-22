@@ -18,6 +18,7 @@ public class InvoiceResponseDTO {
     private Long vehicleId;
     private String vehicleModel;
     private String registrationNumber;
+    private String vehicleCategory;
     private Integer odometer;
 
     private Long counterId;

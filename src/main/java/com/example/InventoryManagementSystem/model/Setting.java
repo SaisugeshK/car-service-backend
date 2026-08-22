@@ -22,7 +22,9 @@ public class Setting {
     @Column(name = "setting_key", unique = true, nullable = false)
     private String settingKey;
 
-    @Column(name = "setting_value")
+    // TEXT, not the Hibernate-default varchar(255) — Phase 31 stores a base64 logo, free-text
+    // terms/footer, and a JSON business-hours blob here, all of which routinely exceed 255 chars.
+    @Column(name = "setting_value", columnDefinition = "TEXT")
     private String settingValue;
 
     @Column(name = "updated_at")

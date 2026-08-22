@@ -29,6 +29,14 @@ public class PaymentTransaction {
 
     private OffsetDateTime paymentDate;
 
+    // Staff member who took the payment — a plain reference to Users, same pattern as
+    // JobCard.advisorUserId/technicianUserId (picked from a dropdown, not derived from session;
+    // this backend's auth doesn't currently surface a numeric user id on login).
+    private Long receivedByUserId;
+
+    @Column(columnDefinition = "TEXT")
+    private String notes;
+
     // The field initializer above is silently skipped by Lombok's generated @Builder (a known
     // gotcha — @Builder never runs field initializers unless the field is @Builder.Default), and
     // PaymentTransactionServiceImpl.create() always constructs via .builder(), so paymentDate

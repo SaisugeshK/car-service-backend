@@ -4,8 +4,10 @@ import com.example.InventoryManagementSystem.dto.SalesReturnItemRequestDTO;
 import com.example.InventoryManagementSystem.dto.SalesReturnItemResponseDTO;
 import com.example.InventoryManagementSystem.model.Product;
 import com.example.InventoryManagementSystem.model.SalesReturnItem;
+import com.example.InventoryManagementSystem.model.StockMovement;
 import com.example.InventoryManagementSystem.Repository.ProductRepository;
 import com.example.InventoryManagementSystem.Repository.SalesReturnItemRepository;
+import com.example.InventoryManagementSystem.Repository.StockMovementRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -19,6 +21,7 @@ public class SalesReturnItemServiceImpl implements SalesReturnItemService {
 
     private final SalesReturnItemRepository salesReturnItemRepository;
     private final ProductRepository productRepository;
+    private final StockMovementRepository stockMovementRepository;
 
     // CREATE
     @Override
@@ -48,6 +51,15 @@ public class SalesReturnItemServiceImpl implements SalesReturnItemService {
         int currentStock = product.getStockQuantity() != null ? product.getStockQuantity() : 0;
         product.setStockQuantity(currentStock + dto.getQuantity());
         productRepository.save(product);
+
+        // Traceability — Phase 22.
+        stockMovementRepository.save(StockMovement.builder()
+                .product(product)
+                .movementType("RETURN_IN")
+                .quantity(dto.getQuantity())
+                .referenceId(dto.getSalesReturnId() != null ? dto.getSalesReturnId().intValue() : null)
+                .notes("Customer return" + (dto.getInvoiceId() != null ? " (Invoice #" + dto.getInvoiceId() + ")" : ""))
+                .build());
 
         return mapToDTO(salesReturnItemRepository.save(item));
     }
@@ -85,6 +97,13 @@ public class SalesReturnItemServiceImpl implements SalesReturnItemService {
         int oldStock = oldProduct.getStockQuantity() != null ? oldProduct.getStockQuantity() : 0;
         oldProduct.setStockQuantity(oldStock - item.getQuantity());
         productRepository.save(oldProduct);
+        stockMovementRepository.save(StockMovement.builder()
+                .product(oldProduct)
+                .movementType("RETURN_REVERSE_OUT")
+                .quantity(item.getQuantity())
+                .referenceId(item.getSalesReturnId() != null ? item.getSalesReturnId().intValue() : null)
+                .notes("Return item edited — previous restock reversed")
+                .build());
 
         Product product = productRepository.findById(dto.getProductId())
                 .orElseThrow(() -> new RuntimeException("Product not found"));
@@ -105,6 +124,13 @@ public class SalesReturnItemServiceImpl implements SalesReturnItemService {
         int currentStock = product.getStockQuantity() != null ? product.getStockQuantity() : 0;
         product.setStockQuantity(currentStock + dto.getQuantity());
         productRepository.save(product);
+        stockMovementRepository.save(StockMovement.builder()
+                .product(product)
+                .movementType("RETURN_IN")
+                .quantity(dto.getQuantity())
+                .referenceId(dto.getSalesReturnId() != null ? dto.getSalesReturnId().intValue() : null)
+                .notes("Customer return (edited)" + (dto.getInvoiceId() != null ? " (Invoice #" + dto.getInvoiceId() + ")" : ""))
+                .build());
 
         return mapToDTO(salesReturnItemRepository.save(item));
     }
@@ -120,6 +146,13 @@ public class SalesReturnItemServiceImpl implements SalesReturnItemService {
             int currentStock = product.getStockQuantity() != null ? product.getStockQuantity() : 0;
             product.setStockQuantity(currentStock - item.getQuantity());
             productRepository.save(product);
+            stockMovementRepository.save(StockMovement.builder()
+                    .product(product)
+                    .movementType("RETURN_REVERSE_OUT")
+                    .quantity(item.getQuantity())
+                    .referenceId(item.getSalesReturnId() != null ? item.getSalesReturnId().intValue() : null)
+                    .notes("Return record deleted — restock reversed")
+                    .build());
         });
 
         salesReturnItemRepository.delete(item);

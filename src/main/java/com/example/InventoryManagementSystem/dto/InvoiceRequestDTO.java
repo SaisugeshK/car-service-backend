@@ -20,6 +20,12 @@ public class InvoiceRequestDTO {
     private Integer odometerReading; // snapshotted onto the invoice; also updates Vehicle.odometer
     private Long counterId;
 
+    // Request-only — never persisted on the Invoice itself. When present, the server validates
+    // every line against that job card's approved estimate (or, if the estimate was rejected,
+    // that the only line is the inspection fee) before the invoice is created. Omitted by POS and
+    // the manual Invoices page, which are unaffected by this check.
+    private Long jobCardId;
+
     private String paymentMethod;
     private String paymentStatus; // optional — derived from paidAmount/grandTotal if omitted
 

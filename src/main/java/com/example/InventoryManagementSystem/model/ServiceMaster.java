@@ -37,6 +37,10 @@ public class ServiceMaster {
 
     private Integer durationMinutes;
 
+    // CAR / BIKE / BOTH — null is treated as BOTH (applies to every vehicle) so existing rows
+    // created before this field stay visible everywhere instead of silently disappearing.
+    private String vehicleType;
+
     private String status = "active";
 
     private OffsetDateTime createdAt = OffsetDateTime.now();

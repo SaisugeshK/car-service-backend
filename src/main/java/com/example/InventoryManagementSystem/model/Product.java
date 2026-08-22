@@ -43,6 +43,10 @@ public class Product {
 
     private String unit;
 
+    // CAR / BIKE / BOTH — null is treated as BOTH (a part usable on either), same convention as
+    // ServiceMaster.vehicleType.
+    private String vehicleType;
+
     private String status; // active / inactive
 
     private LocalDateTime createdAt = LocalDateTime.now();

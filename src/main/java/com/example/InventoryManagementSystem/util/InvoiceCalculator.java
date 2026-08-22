@@ -95,7 +95,12 @@ public final class InvoiceCalculator {
         if (taxable.compareTo(BigDecimal.ZERO) < 0) {
             taxable = BigDecimal.ZERO;
         }
-        BigDecimal tax = taxable.multiply(in.getTaxPercentage()).divide(BigDecimal.valueOf(100));
+        // Rounded to paisa here, not left to whatever scale BigDecimal.divide happens to pick —
+        // otherwise a create-response can show a sub-paisa total (e.g. 323.9964) that silently
+        // differs from what numeric(38,2)/numeric(12,2) actually persists (324.00), which is a
+        // real money-display bug on the confirmation the caller sees before any refetch.
+        BigDecimal tax = taxable.multiply(in.getTaxPercentage())
+                .divide(BigDecimal.valueOf(100), 2, java.math.RoundingMode.HALF_UP);
         BigDecimal total = taxable.add(tax);
         return new LineResult(in.getItemType(), gross, in.getDiscount(), taxable, in.getTaxPercentage(), tax, total);
     }

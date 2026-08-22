@@ -11,6 +11,7 @@ public class ServiceReminderRequestDTO {
     @NotNull(message = "vehicleId is required")
     private Long vehicleId;
 
+    private String reminderType;
     private LocalDate dueDate;
     private Integer dueOdometer;
     private Long sourceInvoiceId;

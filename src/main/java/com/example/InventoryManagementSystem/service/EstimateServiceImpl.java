@@ -1,5 +1,6 @@
 package com.example.InventoryManagementSystem.service;
 
+import com.example.InventoryManagementSystem.Repository.CustomerRepository;
 import com.example.InventoryManagementSystem.Repository.EstimateItemRepository;
 import com.example.InventoryManagementSystem.Repository.EstimateRepository;
 import com.example.InventoryManagementSystem.Repository.ProductRepository;
@@ -37,6 +38,10 @@ public class EstimateServiceImpl implements EstimateService {
     private final ProductRepository productRepository;
     private final ServiceMasterRepository serviceMasterRepository;
     private final ProductTaxRepository productTaxRepository;
+    private final CustomerRepository customerRepository;
+    private final NotificationEventService notificationEventService;
+    private final AuditLogService auditLogService;
+    private final SettingsLookupService settingsLookupService;
 
     private static class ResolvedLine {
         String itemType;
@@ -48,12 +53,55 @@ public class EstimateServiceImpl implements EstimateService {
         BigDecimal unitPrice;
         BigDecimal discount;
         BigDecimal taxPercentage;
+        String workCategory;
     }
 
     @Override
     @Transactional
     public EstimateResponseDTO createEstimate(EstimateRequestDTO dto) {
+        String estimateNumber = settingsLookupService.get("estimate_prefix", "EST") + "-" + System.currentTimeMillis() + "-" + (int) (Math.random() * 1000);
+        return saveEstimateAndItems(dto, estimateNumber, null, 1);
+    }
 
+    @Override
+    @Transactional
+    public EstimateResponseDTO reviseEstimate(Long originalId, EstimateRequestDTO dto) {
+        Estimate original = estimateRepository.findById(originalId)
+                .orElseThrow(() -> new ResourceNotFoundException("Estimate not found with id: " + originalId));
+
+        Long rootId = original.getRootEstimateId() != null ? original.getRootEstimateId() : original.getEstimateId();
+        int nextRevision = getLineage(rootId).stream()
+                .map(e -> e.getRevisionNumber() != null ? e.getRevisionNumber() : 1)
+                .max(Integer::compareTo)
+                .orElse(original.getRevisionNumber() != null ? original.getRevisionNumber() : 1) + 1;
+
+        // original row is never modified — it stays exactly as the customer saw it.
+        return saveEstimateAndItems(dto, original.getEstimateNumber(), rootId, nextRevision);
+    }
+
+    @Override
+    public List<EstimateResponseDTO> getRevisions(Long estimateId) {
+        Estimate estimate = estimateRepository.findById(estimateId)
+                .orElseThrow(() -> new ResourceNotFoundException("Estimate not found with id: " + estimateId));
+        Long rootId = estimate.getRootEstimateId() != null ? estimate.getRootEstimateId() : estimate.getEstimateId();
+        return getLineage(rootId).stream()
+                .sorted((a, b) -> {
+                    int ra = a.getRevisionNumber() != null ? a.getRevisionNumber() : 1;
+                    int rb = b.getRevisionNumber() != null ? b.getRevisionNumber() : 1;
+                    return Integer.compare(ra, rb);
+                })
+                .map(e -> mapToDto(e, estimateItemRepository.findByEstimateId(e.getEstimateId())))
+                .collect(Collectors.toList());
+    }
+
+    /** The root estimate itself plus every estimate that points at it as rootEstimateId. */
+    private List<Estimate> getLineage(Long rootId) {
+        List<Estimate> lineage = new ArrayList<>(estimateRepository.findByRootEstimateId(rootId));
+        estimateRepository.findById(rootId).ifPresent(lineage::add);
+        return lineage;
+    }
+
+    private EstimateResponseDTO saveEstimateAndItems(EstimateRequestDTO dto, String estimateNumber, Long rootEstimateId, int revisionNumber) {
         List<ResolvedLine> resolved = new ArrayList<>();
         for (EstimateLineItemRequestDTO line : dto.getItems()) {
             ResolvedLine r = new ResolvedLine();
@@ -61,6 +109,8 @@ public class EstimateServiceImpl implements EstimateService {
             r.quantity = line.getQuantity();
             r.discount = line.getDiscount() != null ? line.getDiscount() : BigDecimal.ZERO;
             r.description = line.getDescription();
+            r.workCategory = (line.getWorkCategory() != null && !line.getWorkCategory().isBlank())
+                    ? line.getWorkCategory().trim().toUpperCase() : "RECOMMENDED";
 
             if ("SERVICE".equals(r.itemType)) {
                 if (line.getServiceId() == null) {
@@ -89,6 +139,13 @@ public class EstimateServiceImpl implements EstimateService {
                 // No stock check here — an estimate is a quote, not a commitment; stock is
                 // validated for real when the job card actually generates the invoice.
             }
+
+            BigDecimal gross = r.unitPrice.multiply(r.quantity);
+            if (r.discount.compareTo(gross) > 0) {
+                throw new IllegalArgumentException("Discount (" + r.discount + ") cannot exceed the line amount ("
+                        + gross + ") for '" + r.itemName + "'");
+            }
+
             resolved.add(r);
         }
 
@@ -98,7 +155,7 @@ public class EstimateServiceImpl implements EstimateService {
         InvoiceCalculator.InvoiceTotals totals = InvoiceCalculator.calculate(calcInputs, dto.getDiscountAmount());
 
         Estimate estimate = new Estimate();
-        estimate.setEstimateNumber("EST-" + System.currentTimeMillis() + "-" + (int) (Math.random() * 1000));
+        estimate.setEstimateNumber(estimateNumber);
         estimate.setJobCardId(dto.getJobCardId());
         estimate.setCustomerId(dto.getCustomerId());
         estimate.setSubtotal(totals.getSubtotal());
@@ -106,7 +163,10 @@ public class EstimateServiceImpl implements EstimateService {
         estimate.setTaxAmount(totals.getTaxAmount());
         estimate.setGrandTotal(totals.getGrandTotal());
         estimate.setNotes(dto.getNotes());
+        estimate.setValidUntil(dto.getValidUntil());
         estimate.setStatus("PENDING");
+        estimate.setRootEstimateId(rootEstimateId);
+        estimate.setRevisionNumber(revisionNumber);
 
         Estimate saved = estimateRepository.save(estimate);
 
@@ -127,9 +187,23 @@ public class EstimateServiceImpl implements EstimateService {
             item.setTaxPercentage(lr.getTaxPercentage());
             item.setTaxAmount(lr.getTaxAmount());
             item.setTotalAmount(lr.getTotalAmount());
+            item.setWorkCategory(r.workCategory);
 
             savedItems.add(estimateItemRepository.save(item));
         }
+
+        notificationEventService.raise("PENDING_ESTIMATE", "Estimate pending approval",
+                "Estimate " + saved.getEstimateNumber() + " (" + totals.getGrandTotal() + ") is waiting on customer approval.",
+                "ESTIMATE", saved.getEstimateId());
+
+        // "Estimate created" and "Estimate sent" are the same instant in this workflow — there's
+        // no draft/send-later step, PENDING happens at creation — so one CREATED entry covers
+        // both rather than logging two rows for one real event. A revision (rootEstimateId set)
+        // is "Estimate changed" instead.
+        boolean isRevision = rootEstimateId != null;
+        auditLogService.record(isRevision ? "ESTIMATE_REVISED" : "ESTIMATE_CREATED", "ESTIMATE", saved.getEstimateId(),
+                (isRevision ? "Estimate " + saved.getEstimateNumber() + " revised to REV " + revisionNumber
+                        : "Estimate " + saved.getEstimateNumber() + " created") + " (" + totals.getGrandTotal() + ").");
 
         return mapToDto(saved, savedItems);
     }
@@ -159,10 +233,23 @@ public class EstimateServiceImpl implements EstimateService {
     public EstimateResponseDTO approve(Long id, String approvedBy) {
         Estimate estimate = estimateRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Estimate not found with id: " + id));
+        // Phase 34 — billing safety: a decision, once made, is final on this row. Without this,
+        // an already-REJECTED estimate could be silently flipped to APPROVED (or an already-
+        // APPROVED one re-approved, quietly overwriting approvedDate/approvedBy) with no fresh
+        // customer consent — and generateInvoice() would happily bill whatever is APPROVED at
+        // that moment. A genuine change goes through reviseEstimate, a new PENDING row, not this.
+        if (!"PENDING".equals(estimate.getStatus())) {
+            throw new IllegalArgumentException("Estimate " + estimate.getEstimateNumber()
+                    + " is already " + estimate.getStatus() + " — only a PENDING estimate can be approved");
+        }
         estimate.setStatus("APPROVED");
         estimate.setApprovedDate(OffsetDateTime.now());
         estimate.setApprovedBy(approvedBy);
         Estimate saved = estimateRepository.save(estimate);
+        notificationEventService.raise("ESTIMATE_APPROVED", "Estimate approved",
+                "Estimate " + saved.getEstimateNumber() + " was approved.", "ESTIMATE", saved.getEstimateId());
+        auditLogService.record("ESTIMATE_APPROVED", "ESTIMATE", saved.getEstimateId(),
+                "Estimate " + saved.getEstimateNumber() + " approved" + (approvedBy != null ? " by " + approvedBy : "") + ".");
         return mapToDto(saved, estimateItemRepository.findByEstimateId(id));
     }
 
@@ -170,7 +257,30 @@ public class EstimateServiceImpl implements EstimateService {
     public EstimateResponseDTO reject(Long id, String notes) {
         Estimate estimate = estimateRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Estimate not found with id: " + id));
+        // Phase 34 — same reasoning as approve(): a decision is final on this row.
+        if (!"PENDING".equals(estimate.getStatus())) {
+            throw new IllegalArgumentException("Estimate " + estimate.getEstimateNumber()
+                    + " is already " + estimate.getStatus() + " — only a PENDING estimate can be rejected");
+        }
         estimate.setStatus("REJECTED");
+        if (notes != null) estimate.setNotes(notes);
+        Estimate saved = estimateRepository.save(estimate);
+        notificationEventService.raise("ESTIMATE_REJECTED", "Estimate rejected",
+                "Estimate " + saved.getEstimateNumber() + " was rejected by the customer.", "ESTIMATE", saved.getEstimateId());
+        auditLogService.record("ESTIMATE_REJECTED", "ESTIMATE", saved.getEstimateId(),
+                "Estimate " + saved.getEstimateNumber() + " rejected.");
+        return mapToDto(saved, estimateItemRepository.findByEstimateId(id));
+    }
+
+    @Override
+    public EstimateResponseDTO requestChanges(Long id, String notes) {
+        Estimate estimate = estimateRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Estimate not found with id: " + id));
+        if (!"PENDING".equals(estimate.getStatus())) {
+            throw new IllegalArgumentException("Estimate " + estimate.getEstimateNumber()
+                    + " is already " + estimate.getStatus() + " — changes can only be requested on a PENDING estimate");
+        }
+        estimate.setStatus("CHANGES_REQUESTED");
         if (notes != null) estimate.setNotes(notes);
         Estimate saved = estimateRepository.save(estimate);
         return mapToDto(saved, estimateItemRepository.findByEstimateId(id));
@@ -200,11 +310,15 @@ public class EstimateServiceImpl implements EstimateService {
         dto.setEstimateNumber(estimate.getEstimateNumber());
         dto.setJobCardId(estimate.getJobCardId());
         dto.setCustomerId(estimate.getCustomerId());
+        customerRepository.findById(estimate.getCustomerId()).ifPresent(c -> dto.setCustomerName(c.getCustomerName()));
+        dto.setValidUntil(estimate.getValidUntil());
         dto.setSubtotal(estimate.getSubtotal());
         dto.setDiscountAmount(estimate.getDiscountAmount());
         dto.setTaxAmount(estimate.getTaxAmount());
         dto.setGrandTotal(estimate.getGrandTotal());
         dto.setStatus(estimate.getStatus());
+        dto.setRootEstimateId(estimate.getRootEstimateId());
+        dto.setRevisionNumber(estimate.getRevisionNumber());
         dto.setApprovedDate(estimate.getApprovedDate());
         dto.setApprovedBy(estimate.getApprovedBy());
         dto.setNotes(estimate.getNotes());
@@ -229,6 +343,7 @@ public class EstimateServiceImpl implements EstimateService {
         dto.setTaxPercentage(item.getTaxPercentage());
         dto.setTaxAmount(item.getTaxAmount());
         dto.setTotalAmount(item.getTotalAmount());
+        dto.setWorkCategory(item.getWorkCategory());
         return dto;
     }
 }

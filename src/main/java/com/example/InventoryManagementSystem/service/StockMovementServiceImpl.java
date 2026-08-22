@@ -21,6 +21,7 @@ public class StockMovementServiceImpl
 
     private final StockMovementRepository stockMovementRepository;
     private final ProductRepository productRepository;
+    private final NotificationEventService notificationEventService;
 
     // This endpoint now backs the controlled "Stock Adjustment" screen only (Purchase/Invoice/
     // Returns already move stock directly and don't route through here) — so unlike before, a
@@ -47,6 +48,13 @@ public class StockMovementServiceImpl
         }
         product.setStockQuantity(updated);
         productRepository.save(product);
+
+        Integer minimumStock = product.getMinimumStock();
+        if (delta < 0 && minimumStock != null && updated <= minimumStock && current > minimumStock) {
+            notificationEventService.raise("LOW_STOCK", "Low stock",
+                    product.getProductName() + " is at " + updated + " units (minimum " + minimumStock + ").",
+                    "PRODUCT", product.getProductId());
+        }
 
         StockMovement stockMovement = StockMovement.builder()
                 .product(product)

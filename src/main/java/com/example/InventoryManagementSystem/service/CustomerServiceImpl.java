@@ -15,9 +15,11 @@ import java.util.stream.Collectors;
 public class CustomerServiceImpl implements com.example.InventoryManagementSystem.service.CustomerService {
 
     private final CustomerRepository repository;
+    private final NotificationEventService notificationEventService;
 
-    public CustomerServiceImpl(CustomerRepository repository) {
+    public CustomerServiceImpl(CustomerRepository repository, NotificationEventService notificationEventService) {
         this.repository = repository;
+        this.notificationEventService = notificationEventService;
     }
 
     private CustomerResponseDTO mapToDTO(Customer customer) {
@@ -36,6 +38,8 @@ public class CustomerServiceImpl implements com.example.InventoryManagementSyste
     public CustomerResponseDTO createCustomer(CustomerRequestDTO dto) {
         Customer customer = mapToEntity(dto);
         Customer saved = repository.save(customer);
+        notificationEventService.raise("NEW_CUSTOMER", "New customer added",
+                saved.getCustomerName() + " was added as a customer.", "CUSTOMER", saved.getCustomerId());
         return mapToDTO(saved);
     }
 
@@ -61,9 +65,13 @@ public class CustomerServiceImpl implements com.example.InventoryManagementSyste
 
         customer.setCustomerName(dto.getCustomerName());
         customer.setPhone(dto.getPhone());
+        customer.setWhatsappNumber(dto.getWhatsappNumber());
+        customer.setAlternateMobile(dto.getAlternateMobile());
         customer.setEmail(dto.getEmail());
         customer.setAddress(dto.getAddress());
         customer.setCity(dto.getCity());
+        customer.setState(dto.getState());
+        customer.setPincode(dto.getPincode());
         customer.setGstin(dto.getGstin());
         customer.setNotes(dto.getNotes());
         customer.setStatus(dto.getStatus());

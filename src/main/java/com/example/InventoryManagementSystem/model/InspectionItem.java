@@ -25,7 +25,8 @@ public class InspectionItem {
     @Column(nullable = false)
     private String category;
 
-    // GOOD / ATTENTION / URGENT / NOT_CHECKED
+    // GOOD / ATTENTION / REPAIR_REQUIRED / REPLACE / NOT_APPLICABLE / NOT_CHECKED
+    // (URGENT is a legacy value from before this taxonomy existed — still readable, no longer written)
     private String status = "NOT_CHECKED";
 
     @Column(columnDefinition = "TEXT")
@@ -33,6 +34,10 @@ public class InspectionItem {
 
     @Column(columnDefinition = "TEXT")
     private String recommendation;
+
+    // LOW / MEDIUM / HIGH — only meaningful once status flags something, but stored independently
+    // so a technician can flag urgency without forcing a status change.
+    private String priority;
 
     private OffsetDateTime createdAt = OffsetDateTime.now();
     private OffsetDateTime updatedAt = OffsetDateTime.now();

@@ -9,4 +9,6 @@ public class PaymentTransactionRequestDTO {
     private String paymentMethod;
     private String transactionReference;
     private BigDecimal amount;
+    private Long receivedByUserId;
+    private String notes;
 }

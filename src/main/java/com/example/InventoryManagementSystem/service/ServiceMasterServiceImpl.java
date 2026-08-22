@@ -26,6 +26,7 @@ public class ServiceMasterServiceImpl implements ServiceMasterService {
         service.setDefaultPrice(dto.getDefaultPrice());
         if (dto.getGstPercentage() != null) service.setGstPercentage(dto.getGstPercentage());
         service.setDurationMinutes(dto.getDurationMinutes());
+        service.setVehicleType(dto.getVehicleType());
         service.setStatus(dto.getStatus() != null ? dto.getStatus() : "active");
 
         return mapToDTO(repository.save(service));
@@ -54,6 +55,7 @@ public class ServiceMasterServiceImpl implements ServiceMasterService {
         if (dto.getDefaultPrice() != null) service.setDefaultPrice(dto.getDefaultPrice());
         if (dto.getGstPercentage() != null) service.setGstPercentage(dto.getGstPercentage());
         if (dto.getDurationMinutes() != null) service.setDurationMinutes(dto.getDurationMinutes());
+        if (dto.getVehicleType() != null) service.setVehicleType(dto.getVehicleType());
         if (dto.getStatus() != null) service.setStatus(dto.getStatus());
 
         return mapToDTO(repository.save(service));
@@ -75,6 +77,7 @@ public class ServiceMasterServiceImpl implements ServiceMasterService {
         dto.setDefaultPrice(service.getDefaultPrice());
         dto.setGstPercentage(service.getGstPercentage());
         dto.setDurationMinutes(service.getDurationMinutes());
+        dto.setVehicleType(service.getVehicleType());
         dto.setStatus(service.getStatus());
         dto.setCreatedAt(service.getCreatedAt());
         dto.setUpdatedAt(service.getUpdatedAt());

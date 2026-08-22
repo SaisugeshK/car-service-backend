@@ -13,10 +13,12 @@ public class JobCardResponseDTO {
     private Long customerId;
     private String customerName;
     private String customerPhone;
+    private String customerWhatsapp;
 
     private Long vehicleId;
     private String vehicleModel;
     private String registrationNumber;
+    private String vehicleCategory;
 
     private Long advisorUserId;
     private String advisorName;
@@ -40,6 +42,11 @@ public class JobCardResponseDTO {
     private String vehicleConditionNotes;
     private String status;
     private OffsetDateTime deliveredAt;
+    private Long deliveredByUserId;
+    private String deliveredByName;
+    private Boolean vehicleCleaned;
+    private Boolean belongingsChecked;
+    private Boolean keysReadyForDelivery;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 }

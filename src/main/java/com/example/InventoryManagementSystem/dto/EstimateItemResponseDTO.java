@@ -20,4 +20,5 @@ public class EstimateItemResponseDTO {
     private BigDecimal taxPercentage;
     private BigDecimal taxAmount;
     private BigDecimal totalAmount;
+    private String workCategory;
 }

@@ -33,13 +33,21 @@ public class Vehicle {
     // reading at time of a specific visit is snapshotted onto that invoice separately.
     private Integer odometer;
 
-    private String vehicleType; // e.g. Hatchback / Sedan / SUV
+    private String vehicleType; // body style, e.g. Hatchback / Sedan / SUV — free text, unrelated to vehicleCategory
     private String fuelType;    // e.g. Petrol / Diesel / CNG / Electric
     private String color;
     private Integer year;
 
     private String chassisNumber; // VIN
     private String engineNumber;
+
+    // CAR or BIKE — the top-level split the whole service workflow (inspection, estimate, job
+    // card, billing, reports) filters on. Kept separate from vehicleType (body style) above.
+    private String vehicleCategory;
+
+    private String insuranceCompany;
+    private java.time.LocalDate insuranceExpiry;
+    private java.time.LocalDate pucExpiry;
 
     @Column(columnDefinition = "TEXT")
     private String notes;

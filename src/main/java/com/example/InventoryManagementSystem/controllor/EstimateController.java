@@ -51,6 +51,22 @@ public class EstimateController {
         return ResponseEntity.ok(service.reject(id, notes));
     }
 
+    @PostMapping("/{id}/request-changes")
+    public ResponseEntity<EstimateResponseDTO> requestChanges(@PathVariable Long id, @RequestBody(required = false) Map<String, String> body) {
+        String notes = body != null ? body.get("notes") : null;
+        return ResponseEntity.ok(service.requestChanges(id, notes));
+    }
+
+    @PostMapping("/{id}/revise")
+    public ResponseEntity<EstimateResponseDTO> revise(@PathVariable Long id, @Valid @RequestBody EstimateRequestDTO dto) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.reviseEstimate(id, dto));
+    }
+
+    @GetMapping("/{id}/revisions")
+    public ResponseEntity<List<EstimateResponseDTO>> getRevisions(@PathVariable Long id) {
+        return ResponseEntity.ok(service.getRevisions(id));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<String> delete(@PathVariable Long id) {
         service.deleteEstimate(id);

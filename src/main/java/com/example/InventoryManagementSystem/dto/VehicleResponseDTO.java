@@ -2,6 +2,7 @@ package com.example.InventoryManagementSystem.dto;
 
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 @Data
@@ -21,6 +22,10 @@ public class VehicleResponseDTO {
     private Integer year;
     private String chassisNumber;
     private String engineNumber;
+    private String vehicleCategory;
+    private String insuranceCompany;
+    private LocalDate insuranceExpiry;
+    private LocalDate pucExpiry;
     private String notes;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
