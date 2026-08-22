@@ -53,6 +53,17 @@ public class SecurityConfig {
                         // mapping alone doesn't help here — that only runs after Spring Security.)
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
+                        // Safe, customer-facing branding only (company name/logo/tagline/phone) —
+                        // reachable before login, since the login page itself needs to render it.
+                        // The controller behind this path decides exactly which settings keys are
+                        // exposed here; it never forwards the full settings table.
+                        .requestMatchers("/api/public/**").permitAll()
+                        // Reading the staff list and business settings isn't owner-only information —
+                        // any authenticated role needs it (technician/delivery staff-assignment
+                        // dropdowns, invoice/receipt company branding on a print/PDF). Only mutating
+                        // them (create/edit/delete a user, edit settings) stays SUPER_ADMIN-only,
+                        // via the general rule below matching every method once GET is spoken for.
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/users/**", "/api/settings/**").authenticated()
                         // Explicitly SUPER_ADMIN-only per the ERP spec: Users, Roles, Settings, Audit Log (Phase 30).
                         .requestMatchers("/api/users/**", "/api/roles/**", "/api/settings/**", "/api/audit-logs/**").hasRole("SUPER_ADMIN")
                         .requestMatchers("/api/**").authenticated()
