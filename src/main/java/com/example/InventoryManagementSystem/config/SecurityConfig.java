@@ -2,6 +2,7 @@ package com.example.InventoryManagementSystem.config;
 
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -24,6 +25,9 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+
+    @Value("${cors.allowed-origins}")
+    private String[] allowedOrigins;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -63,13 +67,14 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // Same origins/methods/headers as CorsConfig (MVC-level) — duplicated here because Spring
-    // Security's own filter chain runs before Spring MVC and does not see WebMvcConfigurer's
-    // CORS mappings; it needs its own CorsConfigurationSource to answer preflight requests.
+    // Spring Security's own filter chain runs before Spring MVC and never sees a plain
+    // WebMvcConfigurer's CORS mappings, so this is the one CorsConfigurationSource that
+    // actually governs preflight/CORS for every request. Origins come from cors.allowed-origins
+    // (application.properties), overridable via CORS_ALLOWED_ORIGINS at deploy time.
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:5173"));
+        configuration.setAllowedOrigins(List.of(allowedOrigins));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
