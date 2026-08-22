@@ -1,25 +1,33 @@
 package com.example.InventoryManagementSystem.service;
 
+import com.example.InventoryManagementSystem.Repository.AdditionalWorkItemRepository;
+import com.example.InventoryManagementSystem.Repository.AdditionalWorkRequestRepository;
 import com.example.InventoryManagementSystem.Repository.AppointmentRepository;
 import com.example.InventoryManagementSystem.Repository.CustomerRepository;
 import com.example.InventoryManagementSystem.Repository.EstimateItemRepository;
 import com.example.InventoryManagementSystem.Repository.EstimateRepository;
 import com.example.InventoryManagementSystem.Repository.JobCardRepository;
-import com.example.InventoryManagementSystem.Repository.ServiceReminderRepository;
+import com.example.InventoryManagementSystem.Repository.JobCardStatusHistoryRepository;
+import com.example.InventoryManagementSystem.Repository.ServiceMasterRepository;
 import com.example.InventoryManagementSystem.Repository.UserRepository;
 import com.example.InventoryManagementSystem.Repository.VehicleRepository;
+import com.example.InventoryManagementSystem.dto.DeliveryChecklistDTO;
 import com.example.InventoryManagementSystem.dto.InvoiceLineItemRequestDTO;
 import com.example.InventoryManagementSystem.dto.InvoiceRequestDTO;
 import com.example.InventoryManagementSystem.dto.InvoiceResponseDTO;
 import com.example.InventoryManagementSystem.dto.JobCardRequestDTO;
 import com.example.InventoryManagementSystem.dto.JobCardResponseDTO;
+import com.example.InventoryManagementSystem.dto.JobCardStatusHistoryResponseDTO;
 import com.example.InventoryManagementSystem.exception.ResourceNotFoundException;
+import com.example.InventoryManagementSystem.model.AdditionalWorkItem;
+import com.example.InventoryManagementSystem.model.AdditionalWorkRequest;
 import com.example.InventoryManagementSystem.model.Appointment;
 import com.example.InventoryManagementSystem.model.Customer;
 import com.example.InventoryManagementSystem.model.Estimate;
 import com.example.InventoryManagementSystem.model.EstimateItem;
 import com.example.InventoryManagementSystem.model.JobCard;
-import com.example.InventoryManagementSystem.model.ServiceReminder;
+import com.example.InventoryManagementSystem.model.JobCardStatusHistory;
+import com.example.InventoryManagementSystem.model.ServiceMaster;
 import com.example.InventoryManagementSystem.model.User;
 import com.example.InventoryManagementSystem.model.Vehicle;
 import lombok.RequiredArgsConstructor;
@@ -46,8 +54,45 @@ public class JobCardServiceImpl implements JobCardService {
     private final AppointmentRepository appointmentRepository;
     private final EstimateRepository estimateRepository;
     private final EstimateItemRepository estimateItemRepository;
-    private final ServiceReminderRepository serviceReminderRepository;
+    private final ServiceReminderService serviceReminderService;
     private final InvoiceService invoiceService;
+    private final ServiceMasterRepository serviceMasterRepository;
+    private final JobCardStatusHistoryRepository statusHistoryRepository;
+    private final AdditionalWorkRequestRepository additionalWorkRequestRepository;
+    private final AdditionalWorkItemRepository additionalWorkItemRepository;
+    private final NotificationEventService notificationEventService;
+    private final AuditLogService auditLogService;
+    private final SettingsLookupService settingsLookupService;
+
+    // Writes one JobCardStatusHistory row — called by every place that actually changes a job
+    // card's status, right after the new status is set, so the visual timeline can't miss a
+    // transition. Callers are responsible for only calling this when the status truly changed
+    // (each call site already only reaches this after comparing old vs new).
+    private void recordStatusChange(Long jobCardId, String status) {
+        JobCardStatusHistory h = new JobCardStatusHistory();
+        h.setJobCardId(jobCardId);
+        h.setStatus(status);
+        statusHistoryRepository.save(h);
+
+        // Every path that moves a job card to READY_FOR_DELIVERY goes through here — one trigger
+        // point instead of duplicating this at createJobCard/updateJobCard/updateStatus.
+        if ("READY_FOR_DELIVERY".equals(status)) {
+            jobCardRepository.findById(jobCardId).ifPresent(jc ->
+                    notificationEventService.raise("READY_FOR_DELIVERY", "Vehicle ready for delivery",
+                            "Job card " + jc.getJobCardNumber() + " is ready for delivery.", "JOB_CARD", jobCardId));
+        }
+
+        // Phase 30 — same choke point covers "Job status changed" for every transition (including
+        // the very first RECEIVED at creation, which is itself an auditable fact) and calls out
+        // "Delivery completed" as its own action, matching the spec's separate line item for it.
+        boolean isDelivery = "DELIVERED".equals(status);
+        auditLogService.record(isDelivery ? "DELIVERY_COMPLETED" : "JOB_STATUS_CHANGED", "JOB_CARD", jobCardId,
+                "Job card #" + jobCardId + (isDelivery ? " delivered." : " status changed to " + status + "."));
+    }
+
+    // Auto-created the first time it's needed — a real catalog Service (shows up in Services,
+    // taxed like any other line item) rather than a special-cased invoice line type.
+    private static final String INSPECTION_FEE_SERVICE_NAME = "Inspection Fee";
 
     @Override
     public JobCardResponseDTO createJobCard(JobCardRequestDTO dto) {
@@ -64,8 +109,13 @@ public class JobCardServiceImpl implements JobCardService {
         jobCard.setStatus(dto.getStatus() != null ? dto.getStatus() : "RECEIVED");
 
         JobCard saved = jobCardRepository.save(jobCard);
-        saved.setJobCardNumber("JC-" + saved.getJobCardId());
+        saved.setJobCardNumber(settingsLookupService.get("job_card_prefix", "JC") + "-" + saved.getJobCardId());
         saved = jobCardRepository.save(saved);
+        recordStatusChange(saved.getJobCardId(), saved.getStatus());
+
+        notificationEventService.raise("NEW_JOB", "New job card",
+                "Job card " + saved.getJobCardNumber() + " created for " + vehicle.getVehicleModel()
+                        + " (" + vehicle.getRegistrationNumber() + ").", "JOB_CARD", saved.getJobCardId());
 
         return mapToDto(saved);
     }
@@ -85,9 +135,19 @@ public class JobCardServiceImpl implements JobCardService {
     public JobCardResponseDTO updateJobCard(Long id, JobCardRequestDTO dto) {
         JobCard jobCard = jobCardRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Job card not found with id: " + id));
+        // Billing safety: DELIVERED can only be reached through markDelivered()/POST .../deliver,
+        // which enforces the delivery checklist. A generic field update must never be able to
+        // fast-forward a job card past that gate.
+        if (dto.getStatus() != null && "DELIVERED".equalsIgnoreCase(dto.getStatus())
+                && !"DELIVERED".equals(jobCard.getStatus())) {
+            throw new IllegalArgumentException("Cannot set status to DELIVERED directly — use the delivery checklist endpoint");
+        }
         applyRequest(jobCard, dto);
+        boolean statusChanging = dto.getStatus() != null && !dto.getStatus().equals(jobCard.getStatus());
         if (dto.getStatus() != null) jobCard.setStatus(dto.getStatus());
-        return mapToDto(jobCardRepository.save(jobCard));
+        JobCard saved = jobCardRepository.save(jobCard);
+        if (statusChanging) recordStatusChange(saved.getJobCardId(), saved.getStatus());
+        return mapToDto(saved);
     }
 
     private void applyRequest(JobCard jobCard, JobCardRequestDTO dto) {
@@ -109,7 +169,8 @@ public class JobCardServiceImpl implements JobCardService {
 
     private static final List<String> VALID_STATUSES = List.of(
             "RECEIVED", "INSPECTION", "ESTIMATE", "WAITING_APPROVAL", "APPROVED", "IN_PROGRESS",
-            "WAITING_FOR_PARTS", "QUALITY_CHECK", "READY_FOR_DELIVERY", "DELIVERED", "CANCELLED");
+            "WAITING_FOR_PARTS", "ADDITIONAL_APPROVAL_REQUIRED", "QUALITY_CHECK", "READY_FOR_DELIVERY",
+            "DELIVERED", "CANCELLED");
 
     @Override
     public JobCardResponseDTO updateStatus(Long id, String status) {
@@ -118,8 +179,15 @@ public class JobCardServiceImpl implements JobCardService {
         }
         JobCard jobCard = jobCardRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Job card not found with id: " + id));
+        // Billing safety: same DELIVERED gate as updateJobCard() — only markDelivered() may set it.
+        if ("DELIVERED".equalsIgnoreCase(status) && !"DELIVERED".equals(jobCard.getStatus())) {
+            throw new IllegalArgumentException("Cannot set status to DELIVERED directly — use the delivery checklist endpoint");
+        }
+        boolean statusChanging = !status.toUpperCase().equals(jobCard.getStatus());
         jobCard.setStatus(status.toUpperCase());
-        return mapToDto(jobCardRepository.save(jobCard));
+        JobCard saved = jobCardRepository.save(jobCard);
+        if (statusChanging) recordStatusChange(saved.getJobCardId(), saved.getStatus());
+        return mapToDto(saved);
     }
 
     @Override
@@ -150,8 +218,9 @@ public class JobCardServiceImpl implements JobCardService {
         jobCard.setStatus("RECEIVED");
 
         JobCard saved = jobCardRepository.save(jobCard);
-        saved.setJobCardNumber("JC-" + saved.getJobCardId());
+        saved.setJobCardNumber(settingsLookupService.get("job_card_prefix", "JC") + "-" + saved.getJobCardId());
         saved = jobCardRepository.save(saved);
+        recordStatusChange(saved.getJobCardId(), saved.getStatus());
 
         appointment.setJobCardId(saved.getJobCardId());
         appointment.setStatus("ARRIVED");
@@ -192,6 +261,26 @@ public class JobCardServiceImpl implements JobCardService {
             lines.add(line);
         }
 
+        // Fold in every APPROVED additional-work item discovered mid-service — REJECTED/PENDING
+        // ones never reach the invoice, per spec ("do not bill it").
+        List<Long> approvedAdditionalWorkIds = additionalWorkRequestRepository.findByJobCardIdOrderByRequestedAtDesc(jobCardId).stream()
+                .filter(r -> "APPROVED".equals(r.getStatus()))
+                .map(AdditionalWorkRequest::getAdditionalWorkRequestId)
+                .collect(Collectors.toList());
+        if (!approvedAdditionalWorkIds.isEmpty()) {
+            for (AdditionalWorkItem item : additionalWorkItemRepository.findByAdditionalWorkRequestIdIn(approvedAdditionalWorkIds)) {
+                InvoiceLineItemRequestDTO line = new InvoiceLineItemRequestDTO();
+                line.setItemType(item.getItemType());
+                line.setProductId(item.getProductId());
+                line.setServiceId(item.getServiceId());
+                line.setDescription(item.getDescription());
+                line.setQuantity(item.getQuantity());
+                line.setUnitPrice(item.getUnitPrice());
+                line.setDiscount(item.getDiscount());
+                lines.add(line);
+            }
+        }
+
         InvoiceRequestDTO invoiceRequest = new InvoiceRequestDTO();
         invoiceRequest.setCustomerId(jobCard.getCustomerId());
         invoiceRequest.setVehicleId(jobCard.getVehicleId());
@@ -201,31 +290,119 @@ public class JobCardServiceImpl implements JobCardService {
         invoiceRequest.setPaidAmount(paidAmount != null ? paidAmount : BigDecimal.ZERO);
         invoiceRequest.setDiscountAmount(estimate.getDiscountAmount());
         invoiceRequest.setItems(lines);
+        invoiceRequest.setJobCardId(jobCardId);
 
         InvoiceResponseDTO invoice = invoiceService.createInvoice(invoiceRequest);
 
         jobCard.setInvoiceId(invoice.getInvoiceId());
         jobCard.setEstimateId(estimate.getEstimateId());
-        if (!"READY_FOR_DELIVERY".equals(jobCard.getStatus())) {
-            jobCard.setStatus("READY_FOR_DELIVERY");
-        }
-        jobCardRepository.save(jobCard);
+        boolean statusChanging = !"READY_FOR_DELIVERY".equals(jobCard.getStatus());
+        if (statusChanging) jobCard.setStatus("READY_FOR_DELIVERY");
+        JobCard saved = jobCardRepository.save(jobCard);
+        if (statusChanging) recordStatusChange(saved.getJobCardId(), saved.getStatus());
 
         return invoice;
     }
 
     @Override
     @Transactional
-    public JobCardResponseDTO markDelivered(Long jobCardId) {
+    public InvoiceResponseDTO generateInspectionFeeInvoice(Long jobCardId, String paymentMethod, BigDecimal paidAmount, Long counterId, BigDecimal feeAmount) {
+        JobCard jobCard = jobCardRepository.findById(jobCardId)
+                .orElseThrow(() -> new ResourceNotFoundException("Job card not found with id: " + jobCardId));
+        if (jobCard.getInvoiceId() != null) {
+            throw new IllegalArgumentException("This job card already has an invoice");
+        }
+
+        List<Estimate> estimates = estimateRepository.findByJobCardId(jobCardId);
+        // Billing safety: never available while there's still a chargeable path — an approved
+        // estimate means the real invoice should be generated instead, and a still-pending or
+        // changes-requested estimate means the customer hasn't actually decided yet.
+        if (estimates.stream().anyMatch(e -> "APPROVED".equals(e.getStatus()))) {
+            throw new IllegalArgumentException("This job card has an approved estimate — generate the full invoice instead");
+        }
+        if (estimates.stream().anyMatch(e -> "PENDING".equals(e.getStatus()) || "CHANGES_REQUESTED".equals(e.getStatus()))) {
+            throw new IllegalArgumentException("This job card has an estimate still awaiting the customer's decision");
+        }
+        if (estimates.stream().noneMatch(e -> "REJECTED".equals(e.getStatus()))) {
+            throw new IllegalArgumentException("No rejected estimate found for this job card");
+        }
+
+        ServiceMaster inspectionFeeService = serviceMasterRepository.findByServiceName(INSPECTION_FEE_SERVICE_NAME)
+                .orElseGet(() -> {
+                    ServiceMaster s = new ServiceMaster();
+                    s.setServiceName(INSPECTION_FEE_SERVICE_NAME);
+                    s.setDescription("Charged when a customer declines the estimated work after inspection.");
+                    s.setDefaultPrice(BigDecimal.valueOf(500));
+                    s.setGstPercentage(BigDecimal.valueOf(18));
+                    s.setStatus("active");
+                    return serviceMasterRepository.save(s);
+                });
+
+        BigDecimal amount = feeAmount != null ? feeAmount : inspectionFeeService.getDefaultPrice();
+
+        InvoiceLineItemRequestDTO line = new InvoiceLineItemRequestDTO();
+        line.setItemType("SERVICE");
+        line.setServiceId(inspectionFeeService.getServiceId());
+        line.setDescription(INSPECTION_FEE_SERVICE_NAME);
+        line.setQuantity(BigDecimal.ONE);
+        line.setUnitPrice(amount);
+        line.setDiscount(BigDecimal.ZERO);
+
+        InvoiceRequestDTO invoiceRequest = new InvoiceRequestDTO();
+        invoiceRequest.setCustomerId(jobCard.getCustomerId());
+        invoiceRequest.setVehicleId(jobCard.getVehicleId());
+        invoiceRequest.setOdometerReading(jobCard.getOdometer());
+        invoiceRequest.setCounterId(counterId);
+        invoiceRequest.setPaymentMethod(paymentMethod);
+        invoiceRequest.setPaidAmount(paidAmount != null ? paidAmount : BigDecimal.ZERO);
+        invoiceRequest.setDiscountAmount(BigDecimal.ZERO);
+        invoiceRequest.setItems(List.of(line));
+        invoiceRequest.setJobCardId(jobCardId);
+
+        InvoiceResponseDTO invoice = invoiceService.createInvoice(invoiceRequest);
+
+        jobCard.setInvoiceId(invoice.getInvoiceId());
+        boolean statusChanging = !"READY_FOR_DELIVERY".equals(jobCard.getStatus());
+        if (statusChanging) jobCard.setStatus("READY_FOR_DELIVERY");
+        JobCard savedCard = jobCardRepository.save(jobCard);
+        if (statusChanging) recordStatusChange(savedCard.getJobCardId(), savedCard.getStatus());
+
+        return invoice;
+    }
+
+    @Override
+    @Transactional
+    public JobCardResponseDTO markDelivered(Long jobCardId, DeliveryChecklistDTO checklist) {
         JobCard jobCard = jobCardRepository.findById(jobCardId)
                 .orElseThrow(() -> new ResourceNotFoundException("Job card not found with id: " + jobCardId));
         if (jobCard.getInvoiceId() == null) {
             throw new IllegalArgumentException("Cannot deliver a job card with no invoice");
         }
 
+        // The checklist is the final authority, not just a frontend gate — a direct API call
+        // can't skip it either.
+        if (checklist == null || checklist.getDeliveredByUserId() == null) {
+            throw new IllegalArgumentException("Delivery checklist: select which staff member is delivering the vehicle");
+        }
+        if (!Boolean.TRUE.equals(checklist.getVehicleCleaned())) {
+            throw new IllegalArgumentException("Delivery checklist: vehicle cleaning must be confirmed");
+        }
+        if (!Boolean.TRUE.equals(checklist.getBelongingsChecked())) {
+            throw new IllegalArgumentException("Delivery checklist: customer belongings must be confirmed checked");
+        }
+        if (!Boolean.TRUE.equals(checklist.getKeysReady())) {
+            throw new IllegalArgumentException("Delivery checklist: keys must be confirmed ready");
+        }
+
+        boolean statusChanging = !"DELIVERED".equals(jobCard.getStatus());
         jobCard.setStatus("DELIVERED");
         jobCard.setDeliveredAt(OffsetDateTime.now());
+        jobCard.setDeliveredByUserId(checklist.getDeliveredByUserId());
+        jobCard.setVehicleCleaned(true);
+        jobCard.setBelongingsChecked(true);
+        jobCard.setKeysReadyForDelivery(true);
         jobCardRepository.save(jobCard);
+        if (statusChanging) recordStatusChange(jobCard.getJobCardId(), "DELIVERED");
 
         Vehicle vehicle = vehicleRepository.findById(jobCard.getVehicleId()).orElse(null);
         if (vehicle != null && jobCard.getOdometer() != null) {
@@ -237,17 +414,28 @@ public class JobCardServiceImpl implements JobCardService {
         boolean hasService = invoice.getItems() != null
                 && invoice.getItems().stream().anyMatch(i -> "SERVICE".equals(i.getItemType()));
         if (hasService) {
-            ServiceReminder reminder = new ServiceReminder();
-            reminder.setVehicleId(jobCard.getVehicleId());
-            reminder.setDueDate(LocalDate.now(ZoneOffset.UTC).plusMonths(6));
-            reminder.setDueOdometer(jobCard.getOdometer() != null ? jobCard.getOdometer() + 5000 : null);
-            reminder.setSourceInvoiceId(jobCard.getInvoiceId());
-            reminder.setStatus("UPCOMING");
-            reminder.setNotes("Auto-created on delivery of " + jobCard.getJobCardNumber());
-            serviceReminderRepository.save(reminder);
+            Integer odo = jobCard.getOdometer();
+            serviceReminderService.upsertAutoReminder(jobCard.getVehicleId(), "NEXT_SERVICE",
+                    LocalDate.now(ZoneOffset.UTC).plusMonths(6), odo != null ? odo + 5000 : null,
+                    "Auto-created on delivery of " + jobCard.getJobCardNumber());
+            serviceReminderService.upsertAutoReminder(jobCard.getVehicleId(), "OIL_CHANGE",
+                    LocalDate.now(ZoneOffset.UTC).plusMonths(3), odo != null ? odo + 3000 : null,
+                    "Auto-created on delivery of " + jobCard.getJobCardNumber());
         }
 
         return mapToDto(jobCard);
+    }
+
+    @Override
+    public List<JobCardStatusHistoryResponseDTO> getStatusHistory(Long jobCardId) {
+        return statusHistoryRepository.findByJobCardIdOrderByChangedAtAsc(jobCardId).stream()
+                .map(h -> {
+                    JobCardStatusHistoryResponseDTO dto = new JobCardStatusHistoryResponseDTO();
+                    dto.setStatus(h.getStatus());
+                    dto.setChangedAt(h.getChangedAt());
+                    return dto;
+                })
+                .collect(Collectors.toList());
     }
 
     private JobCardResponseDTO mapToDto(JobCard jobCard) {
@@ -273,6 +461,10 @@ public class JobCardServiceImpl implements JobCardService {
         dto.setVehicleConditionNotes(jobCard.getVehicleConditionNotes());
         dto.setStatus(jobCard.getStatus());
         dto.setDeliveredAt(jobCard.getDeliveredAt());
+        dto.setDeliveredByUserId(jobCard.getDeliveredByUserId());
+        dto.setVehicleCleaned(jobCard.getVehicleCleaned());
+        dto.setBelongingsChecked(jobCard.getBelongingsChecked());
+        dto.setKeysReadyForDelivery(jobCard.getKeysReadyForDelivery());
         dto.setCreatedAt(jobCard.getCreatedAt());
         dto.setUpdatedAt(jobCard.getUpdatedAt());
 
@@ -280,17 +472,30 @@ public class JobCardServiceImpl implements JobCardService {
         if (customer != null) {
             dto.setCustomerName(customer.getCustomerName());
             dto.setCustomerPhone(customer.getPhone());
+            dto.setCustomerWhatsapp(customer.getWhatsappNumber());
         }
         Vehicle vehicle = vehicleRepository.findById(jobCard.getVehicleId()).orElse(null);
         if (vehicle != null) {
             dto.setVehicleModel(vehicle.getVehicleModel());
             dto.setRegistrationNumber(vehicle.getRegistrationNumber());
+            dto.setVehicleCategory(vehicle.getVehicleCategory());
         }
         if (jobCard.getAdvisorUserId() != null) {
             userRepository.findById(jobCard.getAdvisorUserId()).ifPresent(u -> dto.setAdvisorName(displayName(u)));
         }
         if (jobCard.getTechnicianUserId() != null) {
             userRepository.findById(jobCard.getTechnicianUserId()).ifPresent(u -> dto.setTechnicianName(displayName(u)));
+        }
+        if (jobCard.getDeliveredByUserId() != null) {
+            userRepository.findById(jobCard.getDeliveredByUserId()).ifPresent(u -> dto.setDeliveredByName(displayName(u)));
+        }
+        if (jobCard.getInvoiceId() != null) {
+            try {
+                dto.setInvoiceNumber(invoiceService.getInvoiceById(jobCard.getInvoiceId()).getInvoiceNumber());
+            } catch (Exception ignored) {
+                // Invoice lookup is best-effort here — a stale invoiceId should never break
+                // loading the job card itself.
+            }
         }
 
         return dto;

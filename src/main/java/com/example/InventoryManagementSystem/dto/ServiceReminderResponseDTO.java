@@ -15,7 +15,9 @@ public class ServiceReminderResponseDTO {
     private Long customerId;
     private String customerName;
     private String customerPhone;
+    private String customerWhatsapp;
 
+    private String reminderType;
     private LocalDate dueDate;
     private Integer dueOdometer;
     private Long sourceInvoiceId;

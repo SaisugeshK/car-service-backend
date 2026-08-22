@@ -3,6 +3,7 @@ package com.example.InventoryManagementSystem.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -25,7 +26,10 @@ public class InvoiceLineItemRequestDTO {
     private BigDecimal quantity;
 
     // Optional override — defaults to the Product's sellingPrice / ServiceMaster's defaultPrice.
+    // Null is fine (not validated), but a value that is present must not be negative.
+    @PositiveOrZero(message = "unitPrice cannot be negative")
     private BigDecimal unitPrice;
 
+    @PositiveOrZero(message = "discount cannot be negative")
     private BigDecimal discount = BigDecimal.ZERO;
 }

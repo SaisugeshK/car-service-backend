@@ -21,6 +21,11 @@ public class ServiceReminder {
     @Column(nullable = false)
     private Long vehicleId;
 
+    // NEXT_SERVICE / OIL_CHANGE / INSURANCE_EXPIRY / PUC_EXPIRY / TYRE_REPLACEMENT / BATTERY /
+    // GENERAL_SERVICE. Defaults to NEXT_SERVICE so every reminder created before this field
+    // existed keeps meaning exactly what it always meant.
+    private String reminderType = "NEXT_SERVICE";
+
     private LocalDate dueDate;
     private Integer dueOdometer;
 

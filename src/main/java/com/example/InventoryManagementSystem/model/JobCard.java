@@ -64,6 +64,14 @@ public class JobCard {
 
     private OffsetDateTime deliveredAt;
 
+    // Delivery checklist — confirmed once, at the moment of delivery (see
+    // JobCardServiceImpl.markDelivered). Persisted rather than left as a frontend-only gate so
+    // there's a real record of what was checked and by whom.
+    private Long deliveredByUserId;
+    private Boolean vehicleCleaned = false;
+    private Boolean belongingsChecked = false;
+    private Boolean keysReadyForDelivery = false;
+
     private OffsetDateTime createdAt = OffsetDateTime.now();
     private OffsetDateTime updatedAt = OffsetDateTime.now();
 

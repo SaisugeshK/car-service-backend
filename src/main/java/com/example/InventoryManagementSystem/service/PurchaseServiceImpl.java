@@ -3,6 +3,7 @@ package com.example.InventoryManagementSystem.service;
 import com.example.InventoryManagementSystem.Repository.ProductRepository;
 import com.example.InventoryManagementSystem.Repository.PurchaseItemRepository;
 import com.example.InventoryManagementSystem.Repository.PurchaseRepository;
+import com.example.InventoryManagementSystem.Repository.StockMovementRepository;
 import com.example.InventoryManagementSystem.Repository.SupplierRepository;
 import com.example.InventoryManagementSystem.Repository.UserRepository;
 import com.example.InventoryManagementSystem.dto.PurchaseItemResponseDto;
@@ -13,6 +14,7 @@ import com.example.InventoryManagementSystem.exception.ResourceNotFoundException
 import com.example.InventoryManagementSystem.model.Product;
 import com.example.InventoryManagementSystem.model.Purchase;
 import com.example.InventoryManagementSystem.model.PurchaseItem;
+import com.example.InventoryManagementSystem.model.StockMovement;
 import com.example.InventoryManagementSystem.model.Supplier;
 import com.example.InventoryManagementSystem.model.User;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +35,7 @@ public class PurchaseServiceImpl implements PurchaseService {
     private final SupplierRepository supplierRepository;
     private final UserRepository userRepository;
     private final ProductRepository productRepository;
+    private final StockMovementRepository stockMovementRepository;
 
     // CREATE PURCHASE
     @Override
@@ -80,6 +83,15 @@ public class PurchaseServiceImpl implements PurchaseService {
                 int currentStock = product.getStockQuantity() != null ? product.getStockQuantity() : 0;
                 product.setStockQuantity(currentStock + line.getQuantity());
                 productRepository.save(product);
+
+                // Traceability — Phase 22: log why stock went up, not just that it did.
+                stockMovementRepository.save(StockMovement.builder()
+                        .product(product)
+                        .movementType("PURCHASE_IN")
+                        .quantity(line.getQuantity())
+                        .referenceId(saved.getPurchaseId().intValue())
+                        .notes("Purchase " + saved.getInvoiceNumber())
+                        .build());
 
                 BigDecimal price = line.getPurchasePrice() != null ? line.getPurchasePrice() : BigDecimal.ZERO;
                 BigDecimal tax = line.getTaxAmount() != null ? line.getTaxAmount() : BigDecimal.ZERO;

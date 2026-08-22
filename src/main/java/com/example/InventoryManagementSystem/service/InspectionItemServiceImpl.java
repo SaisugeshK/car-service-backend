@@ -31,6 +31,7 @@ public class InspectionItemServiceImpl implements InspectionItemService {
         if (dto.getStatus() != null) item.setStatus(dto.getStatus());
         if (dto.getNotes() != null) item.setNotes(dto.getNotes());
         if (dto.getRecommendation() != null) item.setRecommendation(dto.getRecommendation());
+        if (dto.getPriority() != null) item.setPriority(dto.getPriority());
 
         return mapToDto(repository.save(item));
     }
@@ -55,6 +56,7 @@ public class InspectionItemServiceImpl implements InspectionItemService {
         dto.setStatus(item.getStatus());
         dto.setNotes(item.getNotes());
         dto.setRecommendation(item.getRecommendation());
+        dto.setPriority(item.getPriority());
         dto.setUpdatedAt(item.getUpdatedAt());
         return dto;
     }

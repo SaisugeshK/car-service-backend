@@ -35,4 +35,9 @@ public class EstimateItem {
     private BigDecimal taxPercentage = BigDecimal.ZERO;
     private BigDecimal taxAmount = BigDecimal.ZERO;
     private BigDecimal totalAmount;
+
+    // CUSTOMER_REQUESTED (what the customer asked for) / RECOMMENDED (what the technician found
+    // during inspection) — kept separate per line so the estimate can show both groups distinctly
+    // instead of one flat list. Defaults to RECOMMENDED for anything that doesn't specify it.
+    private String workCategory = "RECOMMENDED";
 }

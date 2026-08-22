@@ -11,8 +11,14 @@ import java.time.OffsetDateTime;
 public class PaymentTransactionResponseDTO {
     private Long transactionId;
     private Long invoiceId;
+    private String invoiceNumber;
+    private Long customerId;
+    private String customerName;
     private String paymentMethod;
     private String transactionReference;
     private BigDecimal amount;
     private OffsetDateTime paymentDate;
+    private Long receivedByUserId;
+    private String receivedByName;
+    private String notes;
 }

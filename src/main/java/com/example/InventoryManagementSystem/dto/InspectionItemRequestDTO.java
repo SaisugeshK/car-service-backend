@@ -16,4 +16,5 @@ public class InspectionItemRequestDTO {
     private String status;
     private String notes;
     private String recommendation;
+    private String priority;
 }

@@ -15,6 +15,7 @@ public class ServiceMasterResponseDTO {
     private BigDecimal defaultPrice;
     private BigDecimal gstPercentage;
     private Integer durationMinutes;
+    private String vehicleType;
     private String status;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;

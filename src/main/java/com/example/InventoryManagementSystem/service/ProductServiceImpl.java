@@ -38,6 +38,7 @@ public class ProductServiceImpl implements ProductService {
         dto.setStockQuantity(p.getStockQuantity());
         dto.setMinimumStock(p.getMinimumStock());
         dto.setUnit(p.getUnit());
+        dto.setVehicleType(p.getVehicleType());
         dto.setStatus(p.getStatus());
         dto.setCreatedAt(p.getCreatedAt());
 
@@ -70,6 +71,7 @@ public class ProductServiceImpl implements ProductService {
         p.setStockQuantity(dto.getStockQuantity());
         p.setMinimumStock(dto.getMinimumStock());
         p.setUnit(dto.getUnit());
+        p.setVehicleType(dto.getVehicleType());
         p.setStatus(dto.getStatus() != null ? dto.getStatus() : "active");
 
         return mapToDTO(repository.save(p));
@@ -169,6 +171,9 @@ public class ProductServiceImpl implements ProductService {
 
         if (dto.getUnit() != null)
             product.setUnit(dto.getUnit());
+
+        if (dto.getVehicleType() != null)
+            product.setVehicleType(dto.getVehicleType());
 
         if (dto.getStatus() != null)
             product.setStatus(dto.getStatus());

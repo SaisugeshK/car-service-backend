@@ -4,6 +4,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+import java.time.LocalDate;
+
 @Data
 public class VehicleRequestDTO {
 
@@ -24,5 +26,9 @@ public class VehicleRequestDTO {
     private Integer year;
     private String chassisNumber;
     private String engineNumber;
+    private String vehicleCategory;
+    private String insuranceCompany;
+    private LocalDate insuranceExpiry;
+    private LocalDate pucExpiry;
     private String notes;
 }

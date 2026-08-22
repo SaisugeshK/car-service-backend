@@ -21,6 +21,7 @@ public class ProductResponseDTO {
     private Integer stockQuantity;
     private Integer minimumStock;
     private String unit;
+    private String vehicleType;
     private String status;
     private LocalDateTime createdAt;
 }
