@@ -209,7 +209,16 @@ public class InvoiceServiceImpl implements InvoiceService {
         invoice.setCgstAmount(totals.getCgstAmount());
         invoice.setSgstAmount(totals.getSgstAmount());
         invoice.setGrandTotal(totals.getGrandTotal());
-        invoice.setPaidAmount(dto.getPaidAmount() != null ? dto.getPaidAmount() : BigDecimal.ZERO);
+        BigDecimal paidAtCreation = dto.getPaidAmount() != null ? dto.getPaidAmount() : BigDecimal.ZERO;
+        // Same overpayment guard as PaymentTransactionServiceImpl — the paidAmount passed at
+        // invoice-generation time is just as capable of driving balanceAmount negative as a
+        // later payment record is, and this path had no check at all (confirmed live: a
+        // 7417.00 invoice generated with paidAmount 8000 produced balanceAmount -583.00).
+        if (paidAtCreation.compareTo(totals.getGrandTotal()) > 0) {
+            throw new IllegalArgumentException("Paid amount (" + paidAtCreation
+                    + ") exceeds the invoice grand total (" + totals.getGrandTotal() + ")");
+        }
+        invoice.setPaidAmount(paidAtCreation);
         invoice.setBalanceAmount(totals.getGrandTotal().subtract(invoice.getPaidAmount()));
         invoice.setPaymentStatus(dto.getPaymentStatus() != null && !dto.getPaymentStatus().isBlank()
                 ? dto.getPaymentStatus()
