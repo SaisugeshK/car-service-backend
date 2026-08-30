@@ -4,8 +4,10 @@ import com.example.InventoryManagementSystem.Repository.AdditionalWorkItemReposi
 import com.example.InventoryManagementSystem.Repository.AdditionalWorkRequestRepository;
 import com.example.InventoryManagementSystem.Repository.ProductRepository;
 import com.example.InventoryManagementSystem.Repository.ProductTaxRepository;
+import com.example.InventoryManagementSystem.Repository.JobCardRepository;
 import com.example.InventoryManagementSystem.Repository.ServiceMasterRepository;
 import com.example.InventoryManagementSystem.Repository.UserRepository;
+import com.example.InventoryManagementSystem.Repository.VehicleRepository;
 import com.example.InventoryManagementSystem.dto.AdditionalWorkItemResponseDTO;
 import com.example.InventoryManagementSystem.dto.AdditionalWorkLineItemRequestDTO;
 import com.example.InventoryManagementSystem.dto.AdditionalWorkRequestDTO;
@@ -13,15 +15,18 @@ import com.example.InventoryManagementSystem.dto.AdditionalWorkResponseDTO;
 import com.example.InventoryManagementSystem.exception.ResourceNotFoundException;
 import com.example.InventoryManagementSystem.model.AdditionalWorkItem;
 import com.example.InventoryManagementSystem.model.AdditionalWorkRequest;
+import com.example.InventoryManagementSystem.model.JobCard;
 import com.example.InventoryManagementSystem.model.Product;
 import com.example.InventoryManagementSystem.model.ServiceMaster;
 import com.example.InventoryManagementSystem.model.User;
+import com.example.InventoryManagementSystem.model.Vehicle;
 import com.example.InventoryManagementSystem.util.InvoiceCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +48,9 @@ public class AdditionalWorkServiceImpl implements AdditionalWorkService {
     private final ProductTaxRepository productTaxRepository;
     private final UserRepository userRepository;
     private final JobCardService jobCardService;
+    private final JobCardRepository jobCardRepository;
+    private final VehicleRepository vehicleRepository;
+    private final ServicePricingResolver servicePricingResolver;
     private final NotificationEventService notificationEventService;
     private final AuditLogService auditLogService;
 
@@ -61,6 +69,7 @@ public class AdditionalWorkServiceImpl implements AdditionalWorkService {
     @Override
     @Transactional
     public AdditionalWorkResponseDTO create(AdditionalWorkRequestDTO dto) {
+        String vehicleSizeClass = resolveVehicleSizeClass(dto.getJobCardId());
 
         List<ResolvedLine> resolved = new ArrayList<>();
         for (AdditionalWorkLineItemRequestDTO line : dto.getItems()) {
@@ -79,7 +88,8 @@ public class AdditionalWorkServiceImpl implements AdditionalWorkService {
                 r.serviceId = service.getServiceId();
                 r.itemName = service.getServiceName();
                 r.unitPrice = line.getUnitPrice() != null ? line.getUnitPrice()
-                        : (service.getDefaultPrice() != null ? service.getDefaultPrice() : BigDecimal.ZERO);
+                        : servicePricingResolver.priceFor(service.getServiceId(), vehicleSizeClass)
+                                .setScale(2, RoundingMode.HALF_UP);
                 r.taxPercentage = service.getGstPercentage() != null ? service.getGstPercentage() : BigDecimal.ZERO;
             } else {
                 if (line.getProductId() == null) {
@@ -221,6 +231,16 @@ public class AdditionalWorkServiceImpl implements AdditionalWorkService {
                 "Additional work request #" + saved.getAdditionalWorkRequestId() + " rejected.");
 
         return mapToDto(saved, itemRepository.findByAdditionalWorkRequestId(id));
+    }
+
+    /** Size-band code of the vehicle behind this request's job card; null when unknown. */
+    private String resolveVehicleSizeClass(Long jobCardId) {
+        if (jobCardId == null) return null;
+        return jobCardRepository.findById(jobCardId)
+                .map(JobCard::getVehicleId)
+                .flatMap(vehicleRepository::findById)
+                .map(Vehicle::getSizeClass)
+                .orElse(null);
     }
 
     private String normalizeItemType(String itemType) {

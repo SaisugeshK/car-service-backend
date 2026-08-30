@@ -41,6 +41,7 @@ public class VehicleServiceImpl implements VehicleService {
         vehicle.setChassisNumber(dto.getChassisNumber());
         vehicle.setEngineNumber(dto.getEngineNumber());
         vehicle.setVehicleCategory(dto.getVehicleCategory());
+        vehicle.setSizeClass(dto.getSizeClass());
         vehicle.setInsuranceCompany(dto.getInsuranceCompany());
         vehicle.setInsuranceExpiry(dto.getInsuranceExpiry());
         vehicle.setPucExpiry(dto.getPucExpiry());
@@ -93,6 +94,7 @@ public class VehicleServiceImpl implements VehicleService {
         if (dto.getChassisNumber() != null) vehicle.setChassisNumber(dto.getChassisNumber());
         if (dto.getEngineNumber() != null) vehicle.setEngineNumber(dto.getEngineNumber());
         if (dto.getVehicleCategory() != null) vehicle.setVehicleCategory(dto.getVehicleCategory());
+        if (dto.getSizeClass() != null) vehicle.setSizeClass(dto.getSizeClass());
         if (dto.getInsuranceCompany() != null) vehicle.setInsuranceCompany(dto.getInsuranceCompany());
         if (dto.getInsuranceExpiry() != null) vehicle.setInsuranceExpiry(dto.getInsuranceExpiry());
         if (dto.getPucExpiry() != null) vehicle.setPucExpiry(dto.getPucExpiry());
@@ -152,6 +154,7 @@ public class VehicleServiceImpl implements VehicleService {
         dto.setChassisNumber(vehicle.getChassisNumber());
         dto.setEngineNumber(vehicle.getEngineNumber());
         dto.setVehicleCategory(vehicle.getVehicleCategory());
+        dto.setSizeClass(vehicle.getSizeClass());
         dto.setInsuranceCompany(vehicle.getInsuranceCompany());
         dto.setInsuranceExpiry(vehicle.getInsuranceExpiry());
         dto.setPucExpiry(vehicle.getPucExpiry());

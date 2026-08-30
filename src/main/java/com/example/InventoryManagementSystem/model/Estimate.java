@@ -18,6 +18,15 @@ public class Estimate {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long estimateId;
 
+    // Pre-deployment fix — concurrency testing found two simultaneous approve() calls on the same
+    // PENDING estimate could both succeed (each read status=PENDING before either committed); the
+    // status guard in EstimateServiceImpl.approve() is a read-then-write check that real
+    // concurrency can slip past. @Version forces Hibernate to include the current version in every
+    // UPDATE's WHERE clause, so whichever request loses the race gets a clean, catchable
+    // ObjectOptimisticLockingFailureException instead of silently double-approving.
+    @Version
+    private Long version;
+
     // NOT unique — every revision of the same estimate (REV 1, REV 2, REV 3...) shares this same
     // number, distinguished by revisionNumber instead. Uniqueness lived here before revisions
     // existed; kept as a plain indexed column now.

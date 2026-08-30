@@ -1,12 +1,16 @@
 package com.example.InventoryManagementSystem.service;
 
 import com.example.InventoryManagementSystem.Repository.ServiceMasterRepository;
+import com.example.InventoryManagementSystem.Repository.ServicePriceRepository;
 import com.example.InventoryManagementSystem.dto.ServiceMasterRequestDTO;
 import com.example.InventoryManagementSystem.dto.ServiceMasterResponseDTO;
+import com.example.InventoryManagementSystem.dto.ServiceSizePriceDTO;
 import com.example.InventoryManagementSystem.exception.ResourceNotFoundException;
 import com.example.InventoryManagementSystem.model.ServiceMaster;
+import com.example.InventoryManagementSystem.model.ServicePrice;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -16,8 +20,10 @@ import java.util.stream.Collectors;
 public class ServiceMasterServiceImpl implements ServiceMasterService {
 
     private final ServiceMasterRepository repository;
+    private final ServicePriceRepository servicePriceRepository;
 
     @Override
+    @Transactional
     public ServiceMasterResponseDTO createService(ServiceMasterRequestDTO dto) {
         ServiceMaster service = new ServiceMaster();
         service.setServiceCode(dto.getServiceCode());
@@ -29,7 +35,9 @@ public class ServiceMasterServiceImpl implements ServiceMasterService {
         service.setVehicleType(dto.getVehicleType());
         service.setStatus(dto.getStatus() != null ? dto.getStatus() : "active");
 
-        return mapToDTO(repository.save(service));
+        ServiceMaster saved = repository.save(service);
+        replaceSizePrices(saved.getServiceId(), dto.getSizePrices());
+        return mapToDTO(saved);
     }
 
     @Override
@@ -45,6 +53,7 @@ public class ServiceMasterServiceImpl implements ServiceMasterService {
     }
 
     @Override
+    @Transactional
     public ServiceMasterResponseDTO updateService(Long id, ServiceMasterRequestDTO dto) {
         ServiceMaster service = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Service not found with id: " + id));
@@ -58,14 +67,38 @@ public class ServiceMasterServiceImpl implements ServiceMasterService {
         if (dto.getVehicleType() != null) service.setVehicleType(dto.getVehicleType());
         if (dto.getStatus() != null) service.setStatus(dto.getStatus());
 
-        return mapToDTO(repository.save(service));
+        ServiceMaster saved = repository.save(service);
+        // sizePrices == null means "not part of this update"; an empty list means "clear them".
+        if (dto.getSizePrices() != null) replaceSizePrices(id, dto.getSizePrices());
+        return mapToDTO(saved);
     }
 
     @Override
+    @Transactional
     public void deleteService(Long id) {
         ServiceMaster service = repository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Service not found with id: " + id));
+        replaceSizePrices(id, null);
         repository.delete(service);
+    }
+
+    private void replaceSizePrices(Long serviceId, List<ServiceSizePriceDTO> sizePrices) {
+        // Clear the old rows and make the removal hit the DB before the re-insert, otherwise
+        // an unchanged (serviceId, sizeClassCode) pair collides with its own pending-delete row.
+        List<ServicePrice> existing = servicePriceRepository.findByServiceId(serviceId);
+        if (!existing.isEmpty()) {
+            servicePriceRepository.deleteAllInBatch(existing);
+            servicePriceRepository.flush();
+        }
+        if (sizePrices == null) return;
+        for (ServiceSizePriceDTO sp : sizePrices) {
+            if (sp.getSizeClassCode() == null || sp.getSizeClassCode().isBlank() || sp.getPrice() == null) continue;
+            ServicePrice row = new ServicePrice();
+            row.setServiceId(serviceId);
+            row.setSizeClassCode(sp.getSizeClassCode().trim().toUpperCase());
+            row.setPrice(sp.getPrice());
+            servicePriceRepository.save(row);
+        }
     }
 
     private ServiceMasterResponseDTO mapToDTO(ServiceMaster service) {
@@ -79,6 +112,14 @@ public class ServiceMasterServiceImpl implements ServiceMasterService {
         dto.setDurationMinutes(service.getDurationMinutes());
         dto.setVehicleType(service.getVehicleType());
         dto.setStatus(service.getStatus());
+        dto.setSizePrices(servicePriceRepository.findByServiceId(service.getServiceId()).stream()
+                .map(sp -> {
+                    ServiceSizePriceDTO d = new ServiceSizePriceDTO();
+                    d.setSizeClassCode(sp.getSizeClassCode());
+                    d.setPrice(sp.getPrice());
+                    return d;
+                })
+                .collect(Collectors.toList()));
         dto.setCreatedAt(service.getCreatedAt());
         dto.setUpdatedAt(service.getUpdatedAt());
         return dto;

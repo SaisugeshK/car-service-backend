@@ -19,6 +19,7 @@ public class JobCardResponseDTO {
     private String vehicleModel;
     private String registrationNumber;
     private String vehicleCategory;
+    private String vehicleSizeClass;
 
     private Long advisorUserId;
     private String advisorName;

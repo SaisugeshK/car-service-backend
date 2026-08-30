@@ -378,6 +378,14 @@ public class JobCardServiceImpl implements JobCardService {
         if (jobCard.getInvoiceId() == null) {
             throw new IllegalArgumentException("Cannot deliver a job card with no invoice");
         }
+        // Pre-deployment fix — DELIVERED is a terminal state everywhere else in this app treats
+        // terminal states (an approved Estimate can't be re-approved, a PAID SalaryPayment can't
+        // be re-marked paid), but this endpoint had no such guard: calling it again on an
+        // already-delivered job card silently overwrote deliveredAt/deliveredByUserId with no
+        // trace of the original delivery, discovered during the pre-deployment negative-test pass.
+        if ("DELIVERED".equals(jobCard.getStatus())) {
+            throw new IllegalArgumentException("This job card has already been delivered");
+        }
 
         // The checklist is the final authority, not just a frontend gate — a direct API call
         // can't skip it either.
@@ -479,6 +487,7 @@ public class JobCardServiceImpl implements JobCardService {
             dto.setVehicleModel(vehicle.getVehicleModel());
             dto.setRegistrationNumber(vehicle.getRegistrationNumber());
             dto.setVehicleCategory(vehicle.getVehicleCategory());
+            dto.setVehicleSizeClass(vehicle.getSizeClass());
         }
         if (jobCard.getAdvisorUserId() != null) {
             userRepository.findById(jobCard.getAdvisorUserId()).ifPresent(u -> dto.setAdvisorName(displayName(u)));

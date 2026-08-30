@@ -25,6 +25,20 @@ public class GlobalExceptionHandler {
                 ));
     }
 
+    // HRM/payroll — a caller authenticated fine but isn't allowed to see this specific record
+    // (e.g. an EMPLOYEE fetching another employee's payroll row). Spring picks the most specific
+    // matching @ExceptionHandler, so this always wins over the RuntimeException fallback below.
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<?> handleAccessDenied(AccessDeniedException ex) {
+
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of(
+                        "timestamp", LocalDateTime.now(),
+                        "message", ex.getMessage(),
+                        "status", 403
+                ));
+    }
+
     // Bad input caught explicitly by service-layer checks (e.g. insufficient stock,
     // invalid itemType, negative amounts).
     @ExceptionHandler(IllegalArgumentException.class)

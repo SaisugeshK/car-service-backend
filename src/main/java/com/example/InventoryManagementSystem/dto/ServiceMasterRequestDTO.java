@@ -1,9 +1,11 @@
 package com.example.InventoryManagementSystem.dto;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Data
 public class ServiceMasterRequestDTO {
@@ -19,4 +21,8 @@ public class ServiceMasterRequestDTO {
     private Integer durationMinutes;
     private String vehicleType;
     private String status;
+
+    // Explicit price per vehicle size band. Sizes not listed here fall back to defaultPrice.
+    @Valid
+    private List<ServiceSizePriceDTO> sizePrices;
 }

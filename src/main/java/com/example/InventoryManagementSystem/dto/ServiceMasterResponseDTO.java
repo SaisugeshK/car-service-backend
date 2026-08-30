@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 
 @Data
 public class ServiceMasterResponseDTO {
@@ -17,6 +18,7 @@ public class ServiceMasterResponseDTO {
     private Integer durationMinutes;
     private String vehicleType;
     private String status;
+    private List<ServiceSizePriceDTO> sizePrices;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 }

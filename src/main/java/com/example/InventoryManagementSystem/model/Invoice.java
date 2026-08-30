@@ -18,6 +18,14 @@ public class Invoice {
     @Column(name = "invoice_id")
     private Long invoiceId;
 
+    // Pre-deployment fix — concurrency testing found two truly-simultaneous payments against the
+    // same invoice could both read the same paidAmount before either committed, so the second
+    // write silently clobbered the first's contribution to paidAmount/balanceAmount (a classic
+    // lost update). @Version makes the second save fail cleanly instead — see
+    // PaymentTransactionServiceImpl.applyToInvoice.
+    @Version
+    private Long version;
+
     @Column(name = "invoice_number", nullable = false, unique = true, length = 100)
     private String invoiceNumber;
 

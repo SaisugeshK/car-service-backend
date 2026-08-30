@@ -28,6 +28,10 @@ public class RoleSeeder implements CommandLineRunner {
     public void run(String... args) {
         Role superAdmin = ensureRole("SUPER_ADMIN", "Full access — revenue, financial reports, users, roles, settings, audit logs.");
         Role manager = ensureRole("MANAGER", "Operational access — customers, vehicles, jobs, billing, no owner-level financial/system data.");
+        // HRM/payroll module — staff (technicians etc.) who need their own login to see only
+        // their own payslips, with no access to any management screen. Never backfilled onto
+        // existing roleless users below; an admin assigns it explicitly via the Users screen.
+        ensureRole("EMPLOYEE", "Own payslip access only, no management access.");
 
         // Backfill pre-existing accounts that predate roles entirely. "admin" is the
         // original seeded account, so it becomes SUPER_ADMIN; any other roleless user

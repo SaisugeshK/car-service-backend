@@ -45,6 +45,10 @@ public class Vehicle {
     // card, billing, reports) filters on. Kept separate from vehicleType (body style) above.
     private String vehicleCategory;
 
+    // Size band code — SMALL/SEDAN/SUV/MUV/LUXURY for a car, STANDARD/PREMIUM for a bike. Used to
+    // pick the service's price for this vehicle (service_prices); null → the service's base price.
+    private String sizeClass;
+
     private String insuranceCompany;
     private java.time.LocalDate insuranceExpiry;
     private java.time.LocalDate pucExpiry;

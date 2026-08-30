@@ -23,6 +23,7 @@ public class VehicleResponseDTO {
     private String chassisNumber;
     private String engineNumber;
     private String vehicleCategory;
+    private String sizeClass;
     private String insuranceCompany;
     private LocalDate insuranceExpiry;
     private LocalDate pucExpiry;

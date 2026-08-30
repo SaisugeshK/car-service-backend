@@ -189,7 +189,18 @@ public class PaymentTransactionServiceImpl implements PaymentTransactionService 
         invoice.setPaidAmount(newPaid);
         invoice.setBalanceAmount(invoice.getGrandTotal().subtract(newPaid));
         invoice.setPaymentStatus(InvoiceCalculator.derivePaymentStatus(invoice.getGrandTotal(), newPaid));
-        invoiceRepository.save(invoice);
+        try {
+            // @Version on Invoice (added after concurrency testing) — two simultaneous payments
+            // against the same invoice both used to read the same paidAmount before either
+            // committed, silently losing one payment's contribution. saveAndFlush (not save)
+            // forces the version check to run synchronously here rather than deferred to
+            // transaction commit, where it surfaced as an opaque "Could not commit JPA
+            // transaction" 400 instead of this clean message. The caller's @Transactional method
+            // rolls back its own new PaymentTransaction row too, so nothing is left half-applied.
+            invoiceRepository.saveAndFlush(invoice);
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException lostRace) {
+            throw new IllegalArgumentException("This invoice was just updated by another payment — please retry");
+        }
     }
 
     private PaymentTransactionResponseDTO map(PaymentTransaction p) {

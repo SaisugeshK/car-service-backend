@@ -5,6 +5,8 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -13,10 +15,25 @@ import java.util.Date;
 @Component
 public class JwtUtil {
 
-    private final String SECRET =
-            "mySecretKeymySecretKeymySecretKey123456";
+    // Pre-deployment fix — this used to be a hardcoded literal here, completely ignoring the
+    // jwt.secret/jwt.expiration properties in application.properties (which looked like they
+    // controlled this but did nothing). That meant every environment — dev, staging, prod —
+    // signed tokens with the exact same key committed in source, and JWT_SECRET set at deploy
+    // time had no effect at all. Now actually wired to the property, so JWT_SECRET truly governs
+    // the signing key in production, with the same value as before kept as the fallback so local
+    // dev behavior is unchanged when no env var is set.
+    @Value("${jwt.secret}")
+    private String secret;
 
-    private final SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes());
+    @Value("${jwt.expiration}")
+    private long expirationMs;
+
+    private SecretKey key;
+
+    @PostConstruct
+    private void init() {
+        this.key = Keys.hmacShaKeyFor(secret.getBytes());
+    }
 
     public String generateToken(String email, String roleName) {
 
@@ -26,7 +43,7 @@ public class JwtUtil {
                 .setIssuedAt(new Date())
                 .setExpiration(
                         new Date(System.currentTimeMillis()
-                                + 86400000))
+                                + expirationMs))
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }

@@ -57,6 +57,11 @@ public class SecurityConfig {
                         // mapping alone doesn't help here — that only runs after Spring Security.)
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
+                        // Pre-deployment fix — Cloud Run's health probe carries no JWT; the
+                        // endpoint itself only ever reports up/down (management.endpoint.health.
+                        // show-details=never in application.properties), so this is safe to leave
+                        // open.
+                        .requestMatchers("/actuator/health").permitAll()
                         // Safe, customer-facing branding only (company name/logo/tagline/phone) —
                         // reachable before login, since the login page itself needs to render it.
                         // The controller behind this path decides exactly which settings keys are
@@ -70,6 +75,12 @@ public class SecurityConfig {
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/users/**", "/api/settings/**").authenticated()
                         // Explicitly SUPER_ADMIN-only per the ERP spec: Users, Roles, Settings, Audit Log (Phase 30).
                         .requestMatchers("/api/users/**", "/api/roles/**", "/api/settings/**", "/api/audit-logs/**").hasRole("SUPER_ADMIN")
+                        // HRM/payroll — an EMPLOYEE may only ever GET their own payslip list (/my) or a
+                        // single record by id (ownership itself is enforced in PayrollServiceImpl, not
+                        // expressible at the URL level); every other payroll/HR path stays SUPER_ADMIN/MANAGER.
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/payroll/my", "/api/payroll/*").hasAnyRole("SUPER_ADMIN", "MANAGER", "EMPLOYEE")
+                        .requestMatchers("/api/attendance/**", "/api/leave-requests/**", "/api/overtime/**",
+                                "/api/salary-configs/**", "/api/payroll/**").hasAnyRole("SUPER_ADMIN", "MANAGER")
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll()
                 )

@@ -3,9 +3,11 @@ package com.example.InventoryManagementSystem.service;
 import com.example.InventoryManagementSystem.Repository.CustomerRepository;
 import com.example.InventoryManagementSystem.Repository.EstimateItemRepository;
 import com.example.InventoryManagementSystem.Repository.EstimateRepository;
+import com.example.InventoryManagementSystem.Repository.JobCardRepository;
 import com.example.InventoryManagementSystem.Repository.ProductRepository;
 import com.example.InventoryManagementSystem.Repository.ProductTaxRepository;
 import com.example.InventoryManagementSystem.Repository.ServiceMasterRepository;
+import com.example.InventoryManagementSystem.Repository.VehicleRepository;
 import com.example.InventoryManagementSystem.dto.EstimateItemResponseDTO;
 import com.example.InventoryManagementSystem.dto.EstimateLineItemRequestDTO;
 import com.example.InventoryManagementSystem.dto.EstimateRequestDTO;
@@ -13,14 +15,17 @@ import com.example.InventoryManagementSystem.dto.EstimateResponseDTO;
 import com.example.InventoryManagementSystem.exception.ResourceNotFoundException;
 import com.example.InventoryManagementSystem.model.Estimate;
 import com.example.InventoryManagementSystem.model.EstimateItem;
+import com.example.InventoryManagementSystem.model.JobCard;
 import com.example.InventoryManagementSystem.model.Product;
 import com.example.InventoryManagementSystem.model.ServiceMaster;
+import com.example.InventoryManagementSystem.model.Vehicle;
 import com.example.InventoryManagementSystem.util.InvoiceCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +47,9 @@ public class EstimateServiceImpl implements EstimateService {
     private final NotificationEventService notificationEventService;
     private final AuditLogService auditLogService;
     private final SettingsLookupService settingsLookupService;
+    private final JobCardRepository jobCardRepository;
+    private final VehicleRepository vehicleRepository;
+    private final ServicePricingResolver servicePricingResolver;
 
     private static class ResolvedLine {
         String itemType;
@@ -102,6 +110,8 @@ public class EstimateServiceImpl implements EstimateService {
     }
 
     private EstimateResponseDTO saveEstimateAndItems(EstimateRequestDTO dto, String estimateNumber, Long rootEstimateId, int revisionNumber) {
+        String vehicleSizeClass = resolveVehicleSizeClass(dto.getJobCardId());
+
         List<ResolvedLine> resolved = new ArrayList<>();
         for (EstimateLineItemRequestDTO line : dto.getItems()) {
             ResolvedLine r = new ResolvedLine();
@@ -120,8 +130,11 @@ public class EstimateServiceImpl implements EstimateService {
                         .orElseThrow(() -> new ResourceNotFoundException("Service not found with id: " + line.getServiceId()));
                 r.serviceId = service.getServiceId();
                 r.itemName = service.getServiceName();
+                // An explicit unitPrice from the advisor always wins. Otherwise the price is the
+                // one set for this vehicle's size band on the service, or its base price.
                 r.unitPrice = line.getUnitPrice() != null ? line.getUnitPrice()
-                        : (service.getDefaultPrice() != null ? service.getDefaultPrice() : BigDecimal.ZERO);
+                        : servicePricingResolver.priceFor(service.getServiceId(), vehicleSizeClass)
+                                .setScale(2, RoundingMode.HALF_UP);
                 r.taxPercentage = service.getGstPercentage() != null ? service.getGstPercentage() : BigDecimal.ZERO;
             } else {
                 if (line.getProductId() == null) {
@@ -245,7 +258,12 @@ public class EstimateServiceImpl implements EstimateService {
         estimate.setStatus("APPROVED");
         estimate.setApprovedDate(OffsetDateTime.now());
         estimate.setApprovedBy(approvedBy);
-        Estimate saved = estimateRepository.save(estimate);
+        Estimate saved;
+        try {
+            saved = estimateRepository.save(estimate);
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException lostRace) {
+            throw new IllegalArgumentException("This estimate was just updated by someone else — reload and try again");
+        }
         notificationEventService.raise("ESTIMATE_APPROVED", "Estimate approved",
                 "Estimate " + saved.getEstimateNumber() + " was approved.", "ESTIMATE", saved.getEstimateId());
         auditLogService.record("ESTIMATE_APPROVED", "ESTIMATE", saved.getEstimateId(),
@@ -291,6 +309,16 @@ public class EstimateServiceImpl implements EstimateService {
         Estimate estimate = estimateRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Estimate not found with id: " + id));
         estimateRepository.delete(estimate);
+    }
+
+    /** Size-band code of the vehicle behind this estimate's job card; null when unknown. */
+    private String resolveVehicleSizeClass(Long jobCardId) {
+        if (jobCardId == null) return null;
+        return jobCardRepository.findById(jobCardId)
+                .map(JobCard::getVehicleId)
+                .flatMap(vehicleRepository::findById)
+                .map(Vehicle::getSizeClass)
+                .orElse(null);
     }
 
     private String normalizeItemType(String itemType) {
