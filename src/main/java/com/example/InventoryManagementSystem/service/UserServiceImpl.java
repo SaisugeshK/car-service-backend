@@ -30,7 +30,7 @@ public class UserServiceImpl implements UserService {
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .roleId(request.getRoleId())
                 .status(request.getStatus())
-                .active(request.getActive())
+                .active(resolveActive(request.getActive(), request.getStatus()))
                 .build();
 
         User savedUser = userRepository.save(user);
@@ -70,7 +70,7 @@ public class UserServiceImpl implements UserService {
         user.setMobileNumber(request.getMobileNumber());
         user.setRoleId(request.getRoleId());
         user.setStatus(request.getStatus());
-        user.setActive(request.getActive());
+        user.setActive(resolveActive(request.getActive(), request.getStatus()));
 
         if (request.getPassword() != null &&
                 !request.getPassword().isBlank()) {
@@ -91,6 +91,16 @@ public class UserServiceImpl implements UserService {
                 .orElseThrow(() -> new RuntimeException("User not found with id: " + id));
 
         userRepository.delete(user);
+    }
+
+    // The Users screen sends only `status` ("ACTIVE"/"INACTIVE"), never the boolean `active` —
+    // but payroll eligibility (PayrollServiceImpl) keys off `active`, so a staff member onboarded
+    // through that screen would silently never get payroll generated. Keep the two in sync: honour
+    // an explicit `active` when the caller sends one, otherwise derive it from `status` (anything
+    // but "INACTIVE" — including a null/blank status — counts as active).
+    private Boolean resolveActive(Boolean active, String status) {
+        if (active != null) return active;
+        return !"INACTIVE".equalsIgnoreCase(status);
     }
 
     private UserResponseDTO mapToResponse(User user) {

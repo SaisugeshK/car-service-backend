@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -67,6 +68,22 @@ public class GlobalExceptionHandler {
         body.put("errors", fieldErrors);
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    // An unmapped path — request reached DispatcherServlet, matched no controller and no static
+    // file (e.g. GET /api/attendance served by a backend build that predates the HRM controllers).
+    // NoResourceFoundException extends RuntimeException, so without this dedicated handler the
+    // catch-all below rewrites it to a misleading "400 Bad Request / No static resource
+    // api/attendance." — keep it an honest 404.
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<?> handleNoResource(NoResourceFoundException ex) {
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Map.of(
+                        "timestamp", LocalDateTime.now(),
+                        "message", "No endpoint " + ex.getResourcePath(),
+                        "status", 404
+                ));
     }
 
     // Fallback for the many service-layer methods that still throw a plain RuntimeException
