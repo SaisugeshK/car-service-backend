@@ -191,10 +191,51 @@ public class JobCardServiceImpl implements JobCardService {
     }
 
     @Override
+    @Transactional
     public void deleteJobCard(Long id) {
         JobCard jobCard = jobCardRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Job card not found with id: " + id));
+
+        // Once a job card has been invoiced or delivered there is financial / customer history
+        // hanging off it — deleting it would orphan an invoice and its payments. A job card
+        // created by mistake is caught well before this point (still RECEIVED/INSPECTION/etc.).
+        if (jobCard.getInvoiceId() != null) {
+            throw new IllegalArgumentException(
+                    "This job card already has an invoice and can't be deleted. Cancel the invoice first if it was raised by mistake.");
+        }
+        if ("DELIVERED".equalsIgnoreCase(jobCard.getStatus())) {
+            throw new IllegalArgumentException("A delivered job card can't be deleted.");
+        }
+
+        // Clean up the rows that reference this job card by id (no DB-level FK cascade in this
+        // project — the links are plain id columns).
+        List<Estimate> estimates = estimateRepository.findByJobCardId(id);
+        for (Estimate estimate : estimates) {
+            estimateItemRepository.deleteAll(estimateItemRepository.findByEstimateId(estimate.getEstimateId()));
+        }
+        estimateRepository.deleteAll(estimates);
+
+        List<AdditionalWorkRequest> extraWork = additionalWorkRequestRepository.findByJobCardIdOrderByRequestedAtDesc(id);
+        if (!extraWork.isEmpty()) {
+            List<Long> extraWorkIds = extraWork.stream().map(AdditionalWorkRequest::getAdditionalWorkRequestId).collect(Collectors.toList());
+            additionalWorkItemRepository.deleteAll(additionalWorkItemRepository.findByAdditionalWorkRequestIdIn(extraWorkIds));
+            additionalWorkRequestRepository.deleteAll(extraWork);
+        }
+
+        statusHistoryRepository.deleteAll(statusHistoryRepository.findByJobCardIdOrderByChangedAtAsc(id));
+
+        // If it came from an appointment, release that appointment so it can be converted again.
+        if (jobCard.getAppointmentId() != null) {
+            appointmentRepository.findById(jobCard.getAppointmentId()).ifPresent(appointment -> {
+                appointment.setJobCardId(null);
+                appointment.setStatus("BOOKED");
+                appointmentRepository.save(appointment);
+            });
+        }
+
         jobCardRepository.delete(jobCard);
+        auditLogService.record("JOB_CARD_DELETED", "JOB_CARD", id,
+                "Job card " + jobCard.getJobCardNumber() + " deleted.");
     }
 
     @Override
