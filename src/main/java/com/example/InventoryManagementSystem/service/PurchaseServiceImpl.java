@@ -5,7 +5,6 @@ import com.example.InventoryManagementSystem.Repository.PurchaseItemRepository;
 import com.example.InventoryManagementSystem.Repository.PurchaseRepository;
 import com.example.InventoryManagementSystem.Repository.StockMovementRepository;
 import com.example.InventoryManagementSystem.Repository.SupplierRepository;
-import com.example.InventoryManagementSystem.Repository.UserRepository;
 import com.example.InventoryManagementSystem.dto.PurchaseItemResponseDto;
 import com.example.InventoryManagementSystem.dto.PurchaseLineItemRequestDto;
 import com.example.InventoryManagementSystem.dto.PurchaseRequestDto;
@@ -16,7 +15,6 @@ import com.example.InventoryManagementSystem.model.Purchase;
 import com.example.InventoryManagementSystem.model.PurchaseItem;
 import com.example.InventoryManagementSystem.model.StockMovement;
 import com.example.InventoryManagementSystem.model.Supplier;
-import com.example.InventoryManagementSystem.model.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,9 +31,9 @@ public class PurchaseServiceImpl implements PurchaseService {
     private final PurchaseRepository purchaseRepository;
     private final PurchaseItemRepository purchaseItemRepository;
     private final SupplierRepository supplierRepository;
-    private final UserRepository userRepository;
     private final ProductRepository productRepository;
     private final StockMovementRepository stockMovementRepository;
+    private final CurrentUserService currentUserService;
 
     // CREATE PURCHASE
     @Override
@@ -55,11 +53,9 @@ public class PurchaseServiceImpl implements PurchaseService {
         purchase.setTax(dto.getTax());
         purchase.setPaymentStatus(dto.getPaymentStatus());
 
-        if (dto.getCreatedBy() != null) {
-            User createdBy = userRepository.findById(dto.getCreatedBy())
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + dto.getCreatedBy()));
-            purchase.setCreatedBy(createdBy);
-        }
+        // Attribute the purchase to the logged-in user rather than a client-supplied id — the
+        // frontend used to hardcode createdBy=1, which fails wherever user 1 doesn't exist.
+        purchase.setCreatedBy(currentUserService.getCurrentUser());
 
         // Auto-generate the invoice number when the caller didn't supply one — a billing/purchasing
         // system shouldn't require a person to type a unique reference by hand.
@@ -157,11 +153,7 @@ public class PurchaseServiceImpl implements PurchaseService {
         if (dto.getTax() != null) purchase.setTax(dto.getTax());
         if (dto.getPaymentStatus() != null) purchase.setPaymentStatus(dto.getPaymentStatus());
 
-        if (dto.getCreatedBy() != null) {
-            User createdBy = userRepository.findById(dto.getCreatedBy())
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + dto.getCreatedBy()));
-            purchase.setCreatedBy(createdBy);
-        }
+        // createdBy is fixed at creation time — an edit doesn't change who made the purchase.
 
         Purchase updated = purchaseRepository.save(purchase);
 

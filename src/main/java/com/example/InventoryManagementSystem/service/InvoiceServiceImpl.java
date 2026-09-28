@@ -66,6 +66,7 @@ public class InvoiceServiceImpl implements InvoiceService {
     private final StockMovementRepository stockMovementRepository;
     private final NotificationEventService notificationEventService;
     private final AuditLogService auditLogService;
+    private final CurrentUserService currentUserService;
     private final SettingsLookupService settingsLookupService;
     private final OfferService offerService;
 
@@ -224,7 +225,9 @@ public class InvoiceServiceImpl implements InvoiceService {
             invoice.setOfferDiscountValue(offer.getDiscountValue());
             invoice.setOfferDiscountAmount(redemption.discountAmount());
         }
-        invoice.setCreatedBy(dto.getCreatedBy());
+        // Logged-in user, not the client-supplied id (the POS used to hardcode createdBy=1).
+        Long currentUserId = currentUserService.getCurrentUserId();
+        invoice.setCreatedBy(currentUserId != null ? currentUserId.intValue() : null);
         invoice.setSubtotal(totals.getSubtotal());
         invoice.setDiscountAmount(totals.getDiscountAmount());
         invoice.setTaxAmount(totals.getTaxAmount());
