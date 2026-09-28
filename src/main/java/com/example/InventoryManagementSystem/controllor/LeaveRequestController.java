@@ -2,6 +2,8 @@ package com.example.InventoryManagementSystem.controllor;
 
 import com.example.InventoryManagementSystem.dto.LeaveRequestRequestDTO;
 import com.example.InventoryManagementSystem.dto.LeaveRequestResponseDTO;
+import com.example.InventoryManagementSystem.exception.AccessDeniedException;
+import com.example.InventoryManagementSystem.service.CurrentUserService;
 import com.example.InventoryManagementSystem.service.LeaveRequestService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +19,15 @@ import java.util.List;
 public class LeaveRequestController {
 
     private final LeaveRequestService service;
+    private final CurrentUserService currentUserService;
+
+    // The logged-in user's own leave requests — user resolved from the JWT, never a query param.
+    @GetMapping("/my")
+    public ResponseEntity<List<LeaveRequestResponseDTO>> getMine() {
+        Long userId = currentUserService.getCurrentUserId();
+        if (userId == null) throw new AccessDeniedException("Not authenticated");
+        return ResponseEntity.ok(service.getByUserId(userId));
+    }
 
     @PostMapping
     public ResponseEntity<LeaveRequestResponseDTO> create(@Valid @RequestBody LeaveRequestRequestDTO dto) {

@@ -2,15 +2,21 @@ package com.example.InventoryManagementSystem.service;
 
 import com.example.InventoryManagementSystem.Repository.AppointmentRepository;
 import com.example.InventoryManagementSystem.Repository.CustomerRepository;
+import com.example.InventoryManagementSystem.Repository.JobCardRepository;
 import com.example.InventoryManagementSystem.Repository.VehicleRepository;
 import com.example.InventoryManagementSystem.dto.AppointmentRequestDTO;
 import com.example.InventoryManagementSystem.dto.AppointmentResponseDTO;
+import com.example.InventoryManagementSystem.exception.AccessDeniedException;
 import com.example.InventoryManagementSystem.exception.ResourceNotFoundException;
 import com.example.InventoryManagementSystem.model.Appointment;
+import com.example.InventoryManagementSystem.model.JobCard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 @Service
@@ -20,6 +26,8 @@ public class AppointmentServiceImpl implements AppointmentService {
     private final AppointmentRepository repository;
     private final CustomerRepository customerRepository;
     private final VehicleRepository vehicleRepository;
+    private final JobCardRepository jobCardRepository;
+    private final CurrentUserService currentUserService;
 
     @Override
     public AppointmentResponseDTO createAppointment(AppointmentRequestDTO dto) {
@@ -39,13 +47,34 @@ public class AppointmentServiceImpl implements AppointmentService {
 
     @Override
     public AppointmentResponseDTO getAppointmentById(Long id) {
-        return mapToDto(repository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Appointment not found with id: " + id)));
+        Appointment appointment = repository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Appointment not found with id: " + id));
+        if (!visibleAppointmentFilter().test(appointment)) {
+            throw new AccessDeniedException("This appointment is not assigned to you");
+        }
+        return mapToDto(appointment);
     }
 
     @Override
     public List<AppointmentResponseDTO> getAllAppointments() {
-        return repository.findAll().stream().map(this::mapToDto).collect(Collectors.toList());
+        return repository.findAll().stream()
+                .filter(visibleAppointmentFilter())
+                .map(this::mapToDto)
+                .collect(Collectors.toList());
+    }
+
+    // SUPER_ADMIN sees every appointment. An EMPLOYEE sees the ones they're the advisor on, plus
+    // any whose job card is assigned to them.
+    private Predicate<Appointment> visibleAppointmentFilter() {
+        if (currentUserService.isSuperAdmin()) return a -> true;
+        Long me = currentUserService.getCurrentUserId();
+        if (me == null) return a -> false;
+        Set<Long> viaJobCards = jobCardRepository.findAll().stream()
+                .filter(jc -> me.equals(jc.getTechnicianUserId()) || me.equals(jc.getAdvisorUserId()))
+                .map(JobCard::getAppointmentId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        return a -> me.equals(a.getAdvisorUserId()) || viaJobCards.contains(a.getAppointmentId());
     }
 
     @Override

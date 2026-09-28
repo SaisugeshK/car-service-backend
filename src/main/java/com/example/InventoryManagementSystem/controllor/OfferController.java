@@ -1,6 +1,8 @@
 package com.example.InventoryManagementSystem.controllor;
 
 import com.example.InventoryManagementSystem.dto.OfferCampaignResponseDTO;
+import com.example.InventoryManagementSystem.dto.OfferCheckRequestDTO;
+import com.example.InventoryManagementSystem.dto.OfferEligibilityDTO;
 import com.example.InventoryManagementSystem.dto.OfferLaunchRequestDTO;
 import com.example.InventoryManagementSystem.dto.OfferRequestDTO;
 import com.example.InventoryManagementSystem.dto.OfferResponseDTO;
@@ -54,5 +56,17 @@ public class OfferController {
     @GetMapping("/{id}/campaigns")
     public ResponseEntity<List<OfferCampaignResponseDTO>> getCampaigns(@PathVariable Long id) {
         return ResponseEntity.ok(service.getCampaigns(id));
+    }
+
+    // Billing screens: every current/upcoming offer for this bill, each marked usable or not.
+    @PostMapping("/applicable")
+    public ResponseEntity<List<OfferEligibilityDTO>> getApplicable(@RequestBody OfferCheckRequestDTO bill) {
+        return ResponseEntity.ok(service.getApplicable(bill));
+    }
+
+    // Checks a typed coupon code against the bill — eligible=false with the reason if not usable.
+    @PostMapping("/validate-coupon")
+    public ResponseEntity<OfferEligibilityDTO> validateCoupon(@RequestBody OfferCheckRequestDTO bill) {
+        return ResponseEntity.ok(service.checkCoupon(bill));
     }
 }

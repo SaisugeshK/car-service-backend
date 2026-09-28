@@ -21,5 +21,8 @@ public class CustomerResponseDTO {
     private String notes;
     private String status;
     private OffsetDateTime lastServiceDate;
+    private Integer totalVisits;
+    private OffsetDateTime lastVisitDate;
+    private String regularStatus;
     private OffsetDateTime createdAt;
 }

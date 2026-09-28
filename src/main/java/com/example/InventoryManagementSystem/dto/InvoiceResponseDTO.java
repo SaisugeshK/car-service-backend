@@ -36,6 +36,13 @@ public class InvoiceResponseDTO {
     private BigDecimal balanceAmount;
 
     private String paymentMethod;
+
+    private Long offerId;
+    private String offerName;
+    private String couponCode;
+    private String offerDiscountType;
+    private BigDecimal offerDiscountValue;
+    private BigDecimal offerDiscountAmount;
     private String paymentStatus;
     private String status;
 

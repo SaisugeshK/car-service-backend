@@ -2,6 +2,7 @@ package com.example.InventoryManagementSystem.controllor;
 
 import com.example.InventoryManagementSystem.dto.DeliveryChecklistDTO;
 import com.example.InventoryManagementSystem.dto.InvoiceResponseDTO;
+import com.example.InventoryManagementSystem.dto.JobCardQuickInvoiceRequestDTO;
 import com.example.InventoryManagementSystem.dto.JobCardRequestDTO;
 import com.example.InventoryManagementSystem.dto.JobCardResponseDTO;
 import com.example.InventoryManagementSystem.dto.JobCardStatusHistoryResponseDTO;
@@ -74,6 +75,13 @@ public class JobCardController {
         BigDecimal feeAmount = body != null && body.get("feeAmount") != null
                 ? new BigDecimal(body.get("feeAmount").toString()) : null;
         return ResponseEntity.ok(service.generateInspectionFeeInvoice(id, paymentMethod, paidAmount, counterId, feeAmount));
+    }
+
+    // Single-page job card form: saves complaint/technician/delivery date and bills the submitted
+    // lines as one paid-in-full invoice.
+    @PostMapping("/{id}/quick-invoice")
+    public ResponseEntity<InvoiceResponseDTO> quickInvoice(@PathVariable Long id, @Valid @RequestBody JobCardQuickInvoiceRequestDTO request) {
+        return ResponseEntity.ok(service.quickInvoice(id, request));
     }
 
     @GetMapping("/{id}/status-history")

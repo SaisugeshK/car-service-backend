@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
 public class InspectionPhotoServiceImpl implements InspectionPhotoService {
 
     private final InspectionPhotoRepository repository;
+    private final JobCardAccessService jobCardAccessService;
 
     @Value("${app.upload-dir}")
     private String uploadDir;
@@ -66,6 +67,7 @@ public class InspectionPhotoServiceImpl implements InspectionPhotoService {
 
     @Override
     public List<InspectionPhotoResponseDTO> getByJobCard(Long jobCardId) {
+        jobCardAccessService.requireAccess(jobCardId);
         return repository.findByJobCardIdOrderByUploadedAtDesc(jobCardId).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
@@ -75,6 +77,7 @@ public class InspectionPhotoServiceImpl implements InspectionPhotoService {
     public StoredFile loadFile(Long photoId) {
         InspectionPhoto photo = repository.findById(photoId)
                 .orElseThrow(() -> new ResourceNotFoundException("Photo not found with id: " + photoId));
+        jobCardAccessService.requireAccess(photo.getJobCardId());
         try {
             byte[] data = Files.readAllBytes(Paths.get(uploadDir).resolve(photo.getStoredFileName()));
             return new StoredFile(data, photo.getContentType(), photo.getOriginalFileName());

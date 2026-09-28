@@ -73,6 +73,26 @@ public class Invoice {
     @Column(name = "payment_method", length = 30)
     private String paymentMethod;
 
+    // Offer redeemed on this invoice, snapshotted so later edits to the offer never rewrite
+    // history. offerDiscountAmount is the coupon's share of discountAmount (the rest is manual).
+    @Column(name = "offer_id")
+    private Long offerId;
+
+    @Column(name = "offer_name")
+    private String offerName;
+
+    @Column(name = "coupon_code", length = 60)
+    private String couponCode;
+
+    @Column(name = "offer_discount_type", length = 20)
+    private String offerDiscountType;
+
+    @Column(name = "offer_discount_value", precision = 12, scale = 2)
+    private BigDecimal offerDiscountValue;
+
+    @Column(name = "offer_discount_amount", precision = 12, scale = 2)
+    private BigDecimal offerDiscountAmount;
+
     @Column(name = "payment_status", length = 20)
     private String paymentStatus = "PAID";
 

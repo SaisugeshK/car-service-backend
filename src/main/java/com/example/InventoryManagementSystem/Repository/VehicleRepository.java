@@ -2,6 +2,8 @@ package com.example.InventoryManagementSystem.Repository;
 
 import com.example.InventoryManagementSystem.model.Vehicle;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
@@ -13,4 +15,10 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
     // from before this guard existed, and a single-result derived query throws
     // IncorrectResultSizeDataAccessException the moment it meets more than one match.
     List<Vehicle> findByRegistrationNumberIgnoreCase(String registrationNumber);
+
+    // "TN 01 AB 1234", "tn01ab1234" and "TN-01-AB-1234" are the same plate. :normalized must
+    // already be upper-case with spaces and dashes removed (VisitService.normalizeRegistration).
+    @Query(value = "SELECT * FROM vehicles WHERE UPPER(REPLACE(REPLACE(registration_number, ' ', ''), '-', '')) = :normalized",
+            nativeQuery = true)
+    List<Vehicle> findByNormalizedRegistration(@Param("normalized") String normalized);
 }

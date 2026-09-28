@@ -32,6 +32,14 @@ public class CurrentUserService {
         return user != null ? user.getUserId() : null;
     }
 
+    // Read from the JWT's authorities (set by JwtAuthFilter) — no DB round-trip. Anything that
+    // isn't SUPER_ADMIN is treated as a restricted (employee) caller: least privilege.
+    public boolean isSuperAdmin() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_SUPER_ADMIN".equals(a.getAuthority()));
+    }
+
     public String getCurrentUsername() {
         User user = getCurrentUser();
         if (user == null) return "System";

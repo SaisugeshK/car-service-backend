@@ -50,5 +50,17 @@ public class Customer {
     // user-editable via the Customer form.
     private OffsetDateTime lastServiceDate;
 
+    // Visit tracking — maintained only by CustomerVisitStatsService from the visits table, never
+    // set from a customer create/update request.
+    @Column(name = "total_visits")
+    private Integer totalVisits = 0;
+
+    @Column(name = "last_visit_date")
+    private OffsetDateTime lastVisitDate;
+
+    // NEW / OCCASIONAL / REGULAR
+    @Column(name = "regular_status", length = 20)
+    private String regularStatus = "NEW";
+
     private OffsetDateTime createdAt = OffsetDateTime.now();
 }

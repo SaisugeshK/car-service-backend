@@ -11,11 +11,9 @@ import org.springframework.stereotype.Component;
 import java.time.OffsetDateTime;
 
 /**
- * Phase 19 — roles didn't exist as data at all before this (0 rows in `roles`, every
- * existing user's role_id was null). Seeds the two roles the ERP spec requires and
- * backfills any user still missing a role, so the Users/Roles screens and the new
- * SUPER_ADMIN/MANAGER frontend gating have something real to point at. Idempotent —
- * safe to run on every startup.
+ * The app has exactly two roles: SUPER_ADMIN (read/write on every module) and EMPLOYEE
+ * (read-only, own payslips and own attendance). Seeds both and gives any user without a
+ * valid role the least-privileged one. Idempotent — safe to run on every startup.
  */
 @Component
 @RequiredArgsConstructor
@@ -26,21 +24,16 @@ public class RoleSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        Role superAdmin = ensureRole("SUPER_ADMIN", "Full access — revenue, financial reports, users, roles, settings, audit logs.");
-        Role manager = ensureRole("MANAGER", "Operational access — customers, vehicles, jobs, billing, no owner-level financial/system data.");
-        // HRM/payroll module — staff (technicians etc.) who need their own login to see only
-        // their own payslips, with no access to any management screen. Never backfilled onto
-        // existing roleless users below; an admin assigns it explicitly via the Users screen.
-        ensureRole("EMPLOYEE", "Own payslip access only, no management access.");
+        Role superAdmin = ensureRole("SUPER_ADMIN", "Full access — every module, read and write.");
+        Role employee = ensureRole("EMPLOYEE", "Read-only access to own payslips and own attendance.");
 
-        // Backfill pre-existing accounts that predate roles entirely. "admin" is the
-        // original seeded account, so it becomes SUPER_ADMIN; any other roleless user
-        // (e.g. the test@example.com account created earlier this session) defaults to
-        // MANAGER, matching what self-registration now assigns going forward.
+        // A user with no role, or pointing at a role that no longer exists (e.g. the retired
+        // MANAGER), gets EMPLOYEE. "admin" is the original seeded account, so it becomes
+        // SUPER_ADMIN instead.
         for (User user : userRepository.findAll()) {
-            if (user.getRoleId() != null) continue;
+            if (user.getRoleId() != null && roleRepository.existsById(user.getRoleId())) continue;
             boolean isOriginalAdmin = "admin".equalsIgnoreCase(user.getUsername());
-            user.setRoleId(isOriginalAdmin ? superAdmin.getRoleId() : manager.getRoleId());
+            user.setRoleId(isOriginalAdmin ? superAdmin.getRoleId() : employee.getRoleId());
             userRepository.save(user);
         }
     }

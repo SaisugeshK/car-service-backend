@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -23,6 +24,8 @@ import java.util.List;
 @EnableWebSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
+
+    private static final String[] BOTH = {"SUPER_ADMIN", "EMPLOYEE"};
 
     private final JwtAuthFilter jwtAuthFilter;
 
@@ -56,6 +59,9 @@ public class SecurityConfig {
                         // request without it ever reaching the server. (CorsConfig's WebMvcConfigurer
                         // mapping alone doesn't help here — that only runs after Spring Security.)
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
+                        // Only a SUPER_ADMIN creates accounts — open self-registration would hand
+                        // anyone who finds the URL a login.
+                        .requestMatchers("/api/auth/register").hasRole("SUPER_ADMIN")
                         .requestMatchers("/api/auth/**").permitAll()
                         // Pre-deployment fix — Cloud Run's health probe carries no JWT; the
                         // endpoint itself only ever reports up/down (management.endpoint.health.
@@ -67,21 +73,48 @@ public class SecurityConfig {
                         // The controller behind this path decides exactly which settings keys are
                         // exposed here; it never forwards the full settings table.
                         .requestMatchers("/api/public/**").permitAll()
-                        // Reading the staff list and business settings isn't owner-only information —
-                        // any authenticated role needs it (technician/delivery staff-assignment
-                        // dropdowns, invoice/receipt company branding on a print/PDF). Only mutating
-                        // them (create/edit/delete a user, edit settings) stays SUPER_ADMIN-only,
-                        // via the general rule below matching every method once GET is spoken for.
-                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/users/**", "/api/settings/**").authenticated()
-                        // Explicitly SUPER_ADMIN-only per the ERP spec: Users, Roles, Settings, Audit Log (Phase 30).
-                        .requestMatchers("/api/users/**", "/api/roles/**", "/api/settings/**", "/api/audit-logs/**").hasRole("SUPER_ADMIN")
-                        // HRM/payroll — an EMPLOYEE may only ever GET their own payslip list (/my) or a
-                        // single record by id (ownership itself is enforced in PayrollServiceImpl, not
-                        // expressible at the URL level); every other payroll/HR path stays SUPER_ADMIN/MANAGER.
-                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/payroll/my", "/api/payroll/*").hasAnyRole("SUPER_ADMIN", "MANAGER", "EMPLOYEE")
-                        .requestMatchers("/api/attendance/**", "/api/leave-requests/**", "/api/overtime/**",
-                                "/api/salary-configs/**", "/api/payroll/**").hasAnyRole("SUPER_ADMIN", "MANAGER")
-                        .requestMatchers("/api/**").authenticated()
+                        // Two roles. SUPER_ADMIN: everything. EMPLOYEE: exactly the paths below —
+                        // anything not listed (billing, invoices, payments, offers, CRM, payroll
+                        // runs, salary config, reports, users, settings, ...) falls through to the
+                        // SUPER_ADMIN-only rule at the end.
+                        //
+                        // Own records only — the user is taken from the JWT (the /my endpoints), and
+                        // a payslip fetched by id is ownership-checked in PayrollServiceImpl.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/payroll/my", "/api/payroll/*", "/api/attendance/my",
+                                "/api/leave-requests/my", "/api/overtime/my",
+                                "/api/company-details").hasAnyRole(BOTH)
+                        // Workshop — only job cards/appointments assigned to them; the services
+                        // filter lists and refuse other ids (JobCardAccessService).
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/job-cards", "/api/job-cards/*", "/api/job-cards/*/status-history",
+                                "/api/appointments", "/api/appointments/*",
+                                "/api/inspection-items/job-card/*", "/api/inspection-items/*/photos",
+                                "/api/inspection-items/photos/*").hasAnyRole(BOTH)
+                        // Update an assigned job card: status (workshop states only) and work notes
+                        // — JobCardServiceImpl strips every other field for an EMPLOYEE.
+                        .requestMatchers(HttpMethod.PUT, "/api/job-cards/*").hasAnyRole(BOTH)
+                        .requestMatchers(HttpMethod.PATCH, "/api/job-cards/*/status").hasAnyRole(BOTH)
+                        // Read-only reference data: customers, vehicles, catalog, inventory.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/customers", "/api/customers/*",
+                                "/api/vehicles", "/api/vehicles/**",
+                                "/api/services", "/api/services/*",
+                                "/api/products", "/api/products/*", "/api/categories", "/api/categories/*",
+                                "/api/product-taxes", "/api/product-taxes/*",
+                                "/api/stock-movements", "/api/stock-movements/**",
+                                "/api/purchases", "/api/purchases/*", "/api/suppliers", "/api/suppliers/*").hasAnyRole(BOTH)
+                        // Expenses: an EMPLOYEE records and manages only their own (ExpenseService
+                        // scopes every call); a SUPER_ADMIN sees all.
+                        .requestMatchers("/api/expenses", "/api/expenses/**").hasAnyRole(BOTH)
+                        // Visits: log and read (an EMPLOYEE's full list is only visits they handled);
+                        // deleting one stays SUPER_ADMIN (falls through to the rule at the end).
+                        .requestMatchers(HttpMethod.GET, "/api/visits", "/api/visits/**").hasAnyRole(BOTH)
+                        .requestMatchers(HttpMethod.POST, "/api/visits").hasAnyRole(BOTH)
+                        // Complaints: view and log.
+                        .requestMatchers(HttpMethod.GET, "/api/complaints", "/api/complaints/*").hasAnyRole(BOTH)
+                        .requestMatchers(HttpMethod.POST, "/api/complaints").hasAnyRole(BOTH)
+                        .requestMatchers("/api/**").hasRole("SUPER_ADMIN")
                         .anyRequest().permitAll()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

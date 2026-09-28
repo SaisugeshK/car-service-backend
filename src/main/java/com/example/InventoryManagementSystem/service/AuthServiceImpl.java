@@ -48,9 +48,9 @@ public class AuthServiceImpl implements AuthService {
             throw new RuntimeException("Email already exists");
         }
 
-        // Self-registration always lands as MANAGER (operational role) — SUPER_ADMIN
-        // is only granted by an existing SUPER_ADMIN via the Users screen, never by signup.
-        Integer defaultRoleId = roleRepository.findByRoleName("MANAGER")
+        // Only a SUPER_ADMIN can call this (SecurityConfig). New accounts land as EMPLOYEE —
+        // least privilege; promoting to SUPER_ADMIN is done explicitly on the Users screen.
+        Integer defaultRoleId = roleRepository.findByRoleName("EMPLOYEE")
                 .map(Role::getRoleId)
                 .orElse(null);
 

@@ -3,6 +3,7 @@ package com.example.InventoryManagementSystem.service;
 
 import com.example.InventoryManagementSystem.dto.CustomerRequestDTO;
 import com.example.InventoryManagementSystem.dto.CustomerResponseDTO;
+import com.example.InventoryManagementSystem.exception.ResourceNotFoundException;
 import com.example.InventoryManagementSystem.model.Customer;
 import com.example.InventoryManagementSystem.Repository.CustomerRepository;
 import org.springframework.beans.BeanUtils;
@@ -46,7 +47,7 @@ public class CustomerServiceImpl implements com.example.InventoryManagementSyste
     @Override
     public CustomerResponseDTO getCustomerById(Long id) {
         Customer customer = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Customer not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Customer not found with id: " + id));
         return mapToDTO(customer);
     }
 
@@ -61,7 +62,7 @@ public class CustomerServiceImpl implements com.example.InventoryManagementSyste
     @Override
     public CustomerResponseDTO updateCustomer(Long id, CustomerRequestDTO dto) {
         Customer customer = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Customer not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Customer not found with id: " + id));
 
         customer.setCustomerName(dto.getCustomerName());
         customer.setPhone(dto.getPhone());
@@ -83,7 +84,7 @@ public class CustomerServiceImpl implements com.example.InventoryManagementSyste
     @Override
     public void deleteCustomer(Long id) {
         Customer customer = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Customer not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Customer not found with id: " + id));
         repository.delete(customer);
     }
 }

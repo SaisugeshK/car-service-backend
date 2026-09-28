@@ -2,7 +2,9 @@ package com.example.InventoryManagementSystem.controllor;
 
 import com.example.InventoryManagementSystem.dto.AttendanceRequestDTO;
 import com.example.InventoryManagementSystem.dto.AttendanceResponseDTO;
+import com.example.InventoryManagementSystem.exception.AccessDeniedException;
 import com.example.InventoryManagementSystem.service.AttendanceService;
+import com.example.InventoryManagementSystem.service.CurrentUserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -17,6 +19,18 @@ import java.util.List;
 public class AttendanceController {
 
     private final AttendanceService service;
+    private final CurrentUserService currentUserService;
+
+    // The logged-in user's own attendance — userId comes from the JWT, never a query param, so
+    // an EMPLOYEE can't read anyone else's by changing the URL.
+    @GetMapping("/my")
+    public ResponseEntity<List<AttendanceResponseDTO>> getMine() {
+        Long userId = currentUserService.getCurrentUserId();
+        if (userId == null) {
+            throw new AccessDeniedException("Not authenticated");
+        }
+        return ResponseEntity.ok(service.getByUserId(userId));
+    }
 
     @PostMapping
     public ResponseEntity<AttendanceResponseDTO> create(@Valid @RequestBody AttendanceRequestDTO dto) {

@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 public class InspectionItemServiceImpl implements InspectionItemService {
 
     private final InspectionItemRepository repository;
+    private final JobCardAccessService jobCardAccessService;
 
     @Override
     public InspectionItemResponseDTO saveInspectionItem(InspectionItemRequestDTO dto) {
@@ -38,6 +39,7 @@ public class InspectionItemServiceImpl implements InspectionItemService {
 
     @Override
     public List<InspectionItemResponseDTO> getByJobCardId(Long jobCardId) {
+        jobCardAccessService.requireAccess(jobCardId);
         return repository.findByJobCardId(jobCardId).stream().map(this::mapToDto).collect(Collectors.toList());
     }
 

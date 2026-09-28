@@ -2,6 +2,7 @@ package com.example.InventoryManagementSystem.service;
 
 import com.example.InventoryManagementSystem.dto.DeliveryChecklistDTO;
 import com.example.InventoryManagementSystem.dto.InvoiceResponseDTO;
+import com.example.InventoryManagementSystem.dto.JobCardQuickInvoiceRequestDTO;
 import com.example.InventoryManagementSystem.dto.JobCardRequestDTO;
 import com.example.InventoryManagementSystem.dto.JobCardResponseDTO;
 import com.example.InventoryManagementSystem.dto.JobCardStatusHistoryResponseDTO;
@@ -35,6 +36,11 @@ public interface JobCardService {
     // work. Refuses to run if any estimate for this job card is APPROVED (use generateInvoice
     // instead) or still awaiting a decision (PENDING/CHANGES_REQUESTED).
     InvoiceResponseDTO generateInspectionFeeInvoice(Long jobCardId, String paymentMethod, BigDecimal paidAmount, Long counterId, BigDecimal feeAmount);
+
+    // Single-page job card billing: saves complaint/technician/expected delivery, then creates
+    // the invoice straight from the submitted lines, paid in full, and links it to the job card.
+    // No estimate/approval step — the lines on the form are what gets billed.
+    InvoiceResponseDTO quickInvoice(Long jobCardId, JobCardQuickInvoiceRequestDTO request);
 
     // Marks DELIVERED, updates the vehicle's odometer, and creates the next service reminder.
     // Requires the delivery checklist (who delivered it, cleaning/belongings/keys all confirmed)

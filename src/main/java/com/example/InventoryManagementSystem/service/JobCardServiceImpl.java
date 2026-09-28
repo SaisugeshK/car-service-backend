@@ -15,9 +15,11 @@ import com.example.InventoryManagementSystem.dto.DeliveryChecklistDTO;
 import com.example.InventoryManagementSystem.dto.InvoiceLineItemRequestDTO;
 import com.example.InventoryManagementSystem.dto.InvoiceRequestDTO;
 import com.example.InventoryManagementSystem.dto.InvoiceResponseDTO;
+import com.example.InventoryManagementSystem.dto.JobCardQuickInvoiceRequestDTO;
 import com.example.InventoryManagementSystem.dto.JobCardRequestDTO;
 import com.example.InventoryManagementSystem.dto.JobCardResponseDTO;
 import com.example.InventoryManagementSystem.dto.JobCardStatusHistoryResponseDTO;
+import com.example.InventoryManagementSystem.exception.AccessDeniedException;
 import com.example.InventoryManagementSystem.exception.ResourceNotFoundException;
 import com.example.InventoryManagementSystem.model.AdditionalWorkItem;
 import com.example.InventoryManagementSystem.model.AdditionalWorkRequest;
@@ -63,6 +65,9 @@ public class JobCardServiceImpl implements JobCardService {
     private final NotificationEventService notificationEventService;
     private final AuditLogService auditLogService;
     private final SettingsLookupService settingsLookupService;
+    private final JobCardAccessService jobCardAccessService;
+    private final CurrentUserService currentUserService;
+    private final VisitService visitService;
 
     // Writes one JobCardStatusHistory row — called by every place that actually changes a job
     // card's status, right after the new status is set, so the visual timeline can't miss a
@@ -116,25 +121,53 @@ public class JobCardServiceImpl implements JobCardService {
         notificationEventService.raise("NEW_JOB", "New job card",
                 "Job card " + saved.getJobCardNumber() + " created for " + vehicle.getVehicleModel()
                         + " (" + vehicle.getRegistrationNumber() + ").", "JOB_CARD", saved.getJobCardId());
+        // Every job card is a customer visit (drives New/Occasional/Regular status).
+        visitService.recordJobCardVisit(saved);
 
         return mapToDto(saved);
     }
 
     @Override
     public JobCardResponseDTO getJobCardById(Long id) {
-        return mapToDto(jobCardRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Job card not found with id: " + id)));
+        return mapToDto(jobCardAccessService.requireAccess(id));
     }
 
     @Override
     public List<JobCardResponseDTO> getAllJobCards() {
-        return jobCardRepository.findAll().stream().map(this::mapToDto).collect(Collectors.toList());
+        // An EMPLOYEE's list is only the job cards assigned to them.
+        return jobCardRepository.findAll().stream()
+                .filter(jobCardAccessService::canAccess)
+                .map(this::mapToDto)
+                .collect(Collectors.toList());
+    }
+
+    // What an EMPLOYEE may move an assigned job card to: the workshop-floor progress states.
+    // Customer/billing decisions (estimate, approval), cancelling and delivery stay with SUPER_ADMIN.
+    private static final List<String> EMPLOYEE_STATUSES = List.of(
+            "RECEIVED", "INSPECTION", "IN_PROGRESS", "WAITING_FOR_PARTS", "QUALITY_CHECK", "READY_FOR_DELIVERY");
+
+    private void checkEmployeeStatus(String status) {
+        if (status != null && !currentUserService.isSuperAdmin() && !EMPLOYEE_STATUSES.contains(status.toUpperCase())) {
+            throw new AccessDeniedException("You can only set a job card to: " + String.join(", ", EMPLOYEE_STATUSES));
+        }
     }
 
     @Override
     public JobCardResponseDTO updateJobCard(Long id, JobCardRequestDTO dto) {
-        JobCard jobCard = jobCardRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Job card not found with id: " + id));
+        JobCard jobCard = jobCardAccessService.requireAccess(id);
+        if (!currentUserService.isSuperAdmin()) {
+            // An EMPLOYEE updates the work, not the booking: status and workshop notes only.
+            // Customer, vehicle, assignments, delivery date and complaint stay SUPER_ADMIN's.
+            checkEmployeeStatus(dto.getStatus());
+            JobCardRequestDTO allowed = new JobCardRequestDTO();
+            allowed.setStatus(dto.getStatus());
+            allowed.setWorkRequired(dto.getWorkRequired());
+            allowed.setInternalNotes(dto.getInternalNotes());
+            allowed.setVehicleConditionNotes(dto.getVehicleConditionNotes());
+            allowed.setOdometer(dto.getOdometer());
+            allowed.setFuelLevel(dto.getFuelLevel());
+            dto = allowed;
+        }
         // Billing safety: DELIVERED can only be reached through markDelivered()/POST .../deliver,
         // which enforces the delivery checklist. A generic field update must never be able to
         // fast-forward a job card past that gate.
@@ -177,8 +210,8 @@ public class JobCardServiceImpl implements JobCardService {
         if (status == null || !VALID_STATUSES.contains(status.toUpperCase())) {
             throw new IllegalArgumentException("Invalid job card status: " + status);
         }
-        JobCard jobCard = jobCardRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Job card not found with id: " + id));
+        JobCard jobCard = jobCardAccessService.requireAccess(id);
+        checkEmployeeStatus(status);
         // Billing safety: same DELIVERED gate as updateJobCard() — only markDelivered() may set it.
         if ("DELIVERED".equalsIgnoreCase(status) && !"DELIVERED".equals(jobCard.getStatus())) {
             throw new IllegalArgumentException("Cannot set status to DELIVERED directly — use the delivery checklist endpoint");
@@ -233,6 +266,7 @@ public class JobCardServiceImpl implements JobCardService {
             });
         }
 
+        visitService.removeJobCardVisit(id, jobCard.getCustomerId());
         jobCardRepository.delete(jobCard);
         auditLogService.record("JOB_CARD_DELETED", "JOB_CARD", id,
                 "Job card " + jobCard.getJobCardNumber() + " deleted.");
@@ -266,6 +300,7 @@ public class JobCardServiceImpl implements JobCardService {
         appointment.setJobCardId(saved.getJobCardId());
         appointment.setStatus("ARRIVED");
         appointmentRepository.save(appointment);
+        visitService.recordJobCardVisit(saved);
 
         return mapToDto(saved);
     }
@@ -337,6 +372,53 @@ public class JobCardServiceImpl implements JobCardService {
 
         jobCard.setInvoiceId(invoice.getInvoiceId());
         jobCard.setEstimateId(estimate.getEstimateId());
+        boolean statusChanging = !"READY_FOR_DELIVERY".equals(jobCard.getStatus());
+        if (statusChanging) jobCard.setStatus("READY_FOR_DELIVERY");
+        JobCard saved = jobCardRepository.save(jobCard);
+        if (statusChanging) recordStatusChange(saved.getJobCardId(), saved.getStatus());
+
+        return invoice;
+    }
+
+    private static final List<String> QUICK_INVOICE_PAYMENT_METHODS = List.of("CASH", "CARD", "UPI", "NET_BANKING");
+
+    @Override
+    @Transactional
+    public InvoiceResponseDTO quickInvoice(Long jobCardId, JobCardQuickInvoiceRequestDTO request) {
+        JobCard jobCard = jobCardRepository.findById(jobCardId)
+                .orElseThrow(() -> new ResourceNotFoundException("Job card not found with id: " + jobCardId));
+        if (jobCard.getInvoiceId() != null) {
+            throw new IllegalArgumentException("This job card already has an invoice");
+        }
+        if ("CANCELLED".equals(jobCard.getStatus())) {
+            throw new IllegalArgumentException("Cannot bill a cancelled job card");
+        }
+        String paymentMethod = request.getPaymentMethod() != null ? request.getPaymentMethod().toUpperCase() : null;
+        if (!QUICK_INVOICE_PAYMENT_METHODS.contains(paymentMethod)) {
+            throw new IllegalArgumentException("Payment method must be one of " + QUICK_INVOICE_PAYMENT_METHODS);
+        }
+
+        if (request.getComplaint() != null) jobCard.setComplaint(request.getComplaint());
+        if (request.getExpectedDelivery() != null) jobCard.setExpectedDelivery(request.getExpectedDelivery());
+        if (request.getTechnicianUserId() != null) jobCard.setTechnicianUserId(request.getTechnicianUserId());
+
+        // jobCardId is deliberately left off: InvoiceServiceImpl's job-card check enforces the
+        // estimate-approval flow, which this form replaces — the lines submitted here are the
+        // bill. The duplicate-invoice guard it also provides is the invoiceId check above.
+        InvoiceRequestDTO invoiceRequest = new InvoiceRequestDTO();
+        invoiceRequest.setCustomerId(jobCard.getCustomerId());
+        invoiceRequest.setVehicleId(jobCard.getVehicleId());
+        invoiceRequest.setOdometerReading(jobCard.getOdometer());
+        invoiceRequest.setCounterId(request.getCounterId());
+        invoiceRequest.setPaymentMethod(paymentMethod);
+        invoiceRequest.setPayInFull(true);
+        invoiceRequest.setDiscountAmount(request.getDiscountAmount() != null ? request.getDiscountAmount() : BigDecimal.ZERO);
+        invoiceRequest.setCouponCode(request.getCouponCode());
+        invoiceRequest.setItems(request.getItems());
+
+        InvoiceResponseDTO invoice = invoiceService.createInvoice(invoiceRequest);
+
+        jobCard.setInvoiceId(invoice.getInvoiceId());
         boolean statusChanging = !"READY_FOR_DELIVERY".equals(jobCard.getStatus());
         if (statusChanging) jobCard.setStatus("READY_FOR_DELIVERY");
         JobCard saved = jobCardRepository.save(jobCard);
@@ -477,6 +559,7 @@ public class JobCardServiceImpl implements JobCardService {
 
     @Override
     public List<JobCardStatusHistoryResponseDTO> getStatusHistory(Long jobCardId) {
+        jobCardAccessService.requireAccess(jobCardId);
         return statusHistoryRepository.findByJobCardIdOrderByChangedAtAsc(jobCardId).stream()
                 .map(h -> {
                     JobCardStatusHistoryResponseDTO dto = new JobCardStatusHistoryResponseDTO();

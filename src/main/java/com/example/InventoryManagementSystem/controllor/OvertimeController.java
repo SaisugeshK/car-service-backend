@@ -2,6 +2,8 @@ package com.example.InventoryManagementSystem.controllor;
 
 import com.example.InventoryManagementSystem.dto.OvertimeRequestDTO;
 import com.example.InventoryManagementSystem.dto.OvertimeResponseDTO;
+import com.example.InventoryManagementSystem.exception.AccessDeniedException;
+import com.example.InventoryManagementSystem.service.CurrentUserService;
 import com.example.InventoryManagementSystem.service.OvertimeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +19,15 @@ import java.util.List;
 public class OvertimeController {
 
     private final OvertimeService service;
+    private final CurrentUserService currentUserService;
+
+    // The logged-in user's own overtime entries — user resolved from the JWT, never a query param.
+    @GetMapping("/my")
+    public ResponseEntity<List<OvertimeResponseDTO>> getMine() {
+        Long userId = currentUserService.getCurrentUserId();
+        if (userId == null) throw new AccessDeniedException("Not authenticated");
+        return ResponseEntity.ok(service.getByUserId(userId));
+    }
 
     @PostMapping
     public ResponseEntity<OvertimeResponseDTO> create(@Valid @RequestBody OvertimeRequestDTO dto) {

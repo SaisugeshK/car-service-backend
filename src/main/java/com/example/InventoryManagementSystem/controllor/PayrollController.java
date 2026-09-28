@@ -21,7 +21,7 @@ public class PayrollController {
 
     // Manual/catch-up generation (spec §20) — year/month default to the previous calendar month
     // when omitted (pay-in-arrears, same period the scheduler would use); userId narrows to one
-    // employee. SecurityConfig restricts this whole path to SUPER_ADMIN/MANAGER already.
+    // employee. SecurityConfig restricts this whole path to SUPER_ADMIN already.
     @PostMapping("/generate")
     public ResponseEntity<PayrollGenerationResultDTO> generate(
             @RequestParam(required = false) Integer year,

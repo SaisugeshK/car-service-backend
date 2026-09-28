@@ -110,7 +110,8 @@ public class VehicleServiceImpl implements VehicleService {
     // invoices, and reminders can silently split across "duplicate" vehicles for the same car.
     private void rejectIfRegistrationTaken(String registrationNumber, Long excludeVehicleId) {
         if (registrationNumber == null || registrationNumber.isBlank()) return;
-        repository.findByRegistrationNumberIgnoreCase(registrationNumber.trim()).stream()
+        // Spaces/dashes/case don't make a different plate ("TN 01 AB 1234" == "tn01ab1234").
+        repository.findByNormalizedRegistration(VisitService.normalizeRegistration(registrationNumber)).stream()
                 .filter(existing -> excludeVehicleId == null || !existing.getVehicleId().equals(excludeVehicleId))
                 .findFirst()
                 .ifPresent(existing -> {

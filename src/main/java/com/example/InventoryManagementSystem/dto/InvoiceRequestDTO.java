@@ -30,7 +30,15 @@ public class InvoiceRequestDTO {
     private String paymentStatus; // optional — derived from paidAmount/grandTotal if omitted
 
     private BigDecimal paidAmount = BigDecimal.ZERO;
-    private BigDecimal discountAmount = BigDecimal.ZERO; // additional/overall discount
+    // Request-only — when true, paidAmount is ignored and the invoice is recorded as paid in
+    // full at the server-computed grand total (GST included), so a caller that only knows
+    // "the customer paid" never has to reproduce the tax math to get the amount exactly right.
+    private boolean payInFull;
+    private BigDecimal discountAmount = BigDecimal.ZERO; // additional/overall discount (manual)
+
+    // Optional offer coupon. The server validates it and computes its discount itself (added on
+    // top of discountAmount) — the client never gets to say how much a coupon is worth.
+    private String couponCode;
 
     private Integer createdBy;
 

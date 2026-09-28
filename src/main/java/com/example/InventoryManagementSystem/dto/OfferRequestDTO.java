@@ -2,10 +2,12 @@ package com.example.InventoryManagementSystem.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Data;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
+import java.time.OffsetDateTime;
 
 @Data
 public class OfferRequestDTO {
@@ -19,13 +21,20 @@ public class OfferRequestDTO {
     private String discountType;
 
     @NotNull(message = "discountValue is required")
+    @Positive(message = "discountValue must be greater than zero")
     private BigDecimal discountValue;
 
-    private LocalDate startDate;
-    private LocalDate endDate;
+    private OffsetDateTime startDateTime;
+    private OffsetDateTime endDateTime;
     private String vehicleType;
     private Long categoryId;
+
+    @PositiveOrZero(message = "minimumBillAmount cannot be negative")
     private BigDecimal minimumBillAmount;
+
+    @Positive(message = "usageLimit must be at least 1")
+    private Integer usageLimit;
+
     private String terms;
     private String status;
 }

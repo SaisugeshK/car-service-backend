@@ -27,6 +27,7 @@ import com.example.InventoryManagementSystem.model.EstimateItem;
 import com.example.InventoryManagementSystem.model.Invoice;
 import com.example.InventoryManagementSystem.model.InvoiceItem;
 import com.example.InventoryManagementSystem.model.JobCard;
+import com.example.InventoryManagementSystem.model.Offer;
 import com.example.InventoryManagementSystem.model.PaymentTransaction;
 import com.example.InventoryManagementSystem.model.Product;
 import com.example.InventoryManagementSystem.model.ServiceMaster;
@@ -66,6 +67,7 @@ public class InvoiceServiceImpl implements InvoiceService {
     private final NotificationEventService notificationEventService;
     private final AuditLogService auditLogService;
     private final SettingsLookupService settingsLookupService;
+    private final OfferService offerService;
 
     // Matches JobCardServiceImpl's inspection-fee service — kept as a plain string constant in
     // both places rather than a shared enum, since it's just a catalog Service by name.
@@ -172,7 +174,18 @@ public class InvoiceServiceImpl implements InvoiceService {
         List<InvoiceCalculator.LineInput> calcInputs = resolved.stream()
                 .map(r -> new InvoiceCalculator.LineInput(r.itemType, r.unitPrice, r.quantity.intValue(), r.discount, r.taxPercentage))
                 .collect(Collectors.toList());
-        InvoiceCalculator.InvoiceTotals totals = InvoiceCalculator.calculate(calcInputs, dto.getDiscountAmount());
+        // 2b) Offer coupon: validated and priced here, against the bill before any discount
+        //     (GST included), so what the customer is charged never depends on a client-side
+        //     number. The coupon's discount stacks on top of any manual discountAmount.
+        BigDecimal manualDiscount = dto.getDiscountAmount() != null ? dto.getDiscountAmount() : BigDecimal.ZERO;
+        OfferService.OfferRedemption redemption = null;
+        if (dto.getCouponCode() != null && !dto.getCouponCode().isBlank()) {
+            BigDecimal billBeforeDiscount = InvoiceCalculator.calculate(calcInputs, BigDecimal.ZERO).getGrandTotal();
+            redemption = offerService.redeem(dto.getCouponCode(), billBeforeDiscount,
+                    vehicle != null ? vehicle.getVehicleCategory() : null);
+        }
+        BigDecimal totalDiscount = redemption != null ? manualDiscount.add(redemption.discountAmount()) : manualDiscount;
+        InvoiceCalculator.InvoiceTotals totals = InvoiceCalculator.calculate(calcInputs, totalDiscount);
 
         // 3) Decrement stock for PRODUCT lines now that everything has been validated.
         for (ResolvedLine r : resolved) {
@@ -202,6 +215,15 @@ public class InvoiceServiceImpl implements InvoiceService {
         invoice.setOdometerReading(dto.getOdometerReading());
         invoice.setCounterId(dto.getCounterId() != null ? dto.getCounterId().intValue() : null);
         invoice.setPaymentMethod(dto.getPaymentMethod());
+        if (redemption != null) {
+            Offer offer = redemption.offer();
+            invoice.setOfferId(offer.getOfferId());
+            invoice.setOfferName(offer.getOfferName());
+            invoice.setCouponCode(offer.getCouponCode());
+            invoice.setOfferDiscountType(offer.getDiscountType());
+            invoice.setOfferDiscountValue(offer.getDiscountValue());
+            invoice.setOfferDiscountAmount(redemption.discountAmount());
+        }
         invoice.setCreatedBy(dto.getCreatedBy());
         invoice.setSubtotal(totals.getSubtotal());
         invoice.setDiscountAmount(totals.getDiscountAmount());
@@ -209,7 +231,8 @@ public class InvoiceServiceImpl implements InvoiceService {
         invoice.setCgstAmount(totals.getCgstAmount());
         invoice.setSgstAmount(totals.getSgstAmount());
         invoice.setGrandTotal(totals.getGrandTotal());
-        BigDecimal paidAtCreation = dto.getPaidAmount() != null ? dto.getPaidAmount() : BigDecimal.ZERO;
+        BigDecimal paidAtCreation = dto.isPayInFull() ? totals.getGrandTotal()
+                : dto.getPaidAmount() != null ? dto.getPaidAmount() : BigDecimal.ZERO;
         // Same overpayment guard as PaymentTransactionServiceImpl — the paidAmount passed at
         // invoice-generation time is just as capable of driving balanceAmount negative as a
         // later payment record is, and this path had no check at all (confirmed live: a
@@ -510,6 +533,12 @@ public class InvoiceServiceImpl implements InvoiceService {
         dto.setPaidAmount(invoice.getPaidAmount());
         dto.setBalanceAmount(invoice.getBalanceAmount());
         dto.setPaymentMethod(invoice.getPaymentMethod());
+        dto.setOfferId(invoice.getOfferId());
+        dto.setOfferName(invoice.getOfferName());
+        dto.setCouponCode(invoice.getCouponCode());
+        dto.setOfferDiscountType(invoice.getOfferDiscountType());
+        dto.setOfferDiscountValue(invoice.getOfferDiscountValue());
+        dto.setOfferDiscountAmount(invoice.getOfferDiscountAmount());
         dto.setPaymentStatus(invoice.getPaymentStatus());
         dto.setStatus(invoice.getStatus());
         dto.setCreatedBy(invoice.getCreatedBy());
